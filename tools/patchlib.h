@@ -544,6 +544,7 @@ BOOLEAN check_sub_string(CHAR8* str,CHAR8* keyword){
     return FALSE;
 }
 BOOLEAN patch_string_jump(CHAR8* buffer, INT32 size) {
+    BOOLEAN patched = FALSE;
     for(int i = 0; i < size - 4; i += 4) {
         DecodedInst d = decode_at(buffer, i);
         INT64 jmp=0;
@@ -560,9 +561,11 @@ BOOLEAN patch_string_jump(CHAR8* buffer, INT32 size) {
                 Print_patcher("  String: %s\n", str);
                 //nop the jump instruction
                 write_instr(buffer, i, NOP); // NOP
+                patched = TRUE;
             }
         }
     }
+    return patched;
 }
 
 BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
