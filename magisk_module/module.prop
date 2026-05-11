@@ -1,6 +1,6 @@
 id=fake_bl_efisp
 name=假回锁
-version=4.0
-versionCode=10
+version=4.1
+versionCode=11
 author=smartcreeper
 description=自动刷新bl相关分区到非活动槽位
