@@ -111,6 +111,36 @@ INT16 Patched[] = {
     -1, -1, -1, -1, -1, -1, -1, -1
 };
 
+// ===================== 去黄字补丁（从参考代码原样加入）=====================
+INT16 Original_warning[] = {
+    -1, 0x06, 0x80, 0x52,
+    -1, 0x00, 0x00, -1,
+    -1, 0x05, -1,-1
+};
+INT16 Patched_warning = 0x7F;
+
+INT32 patch_warning(CHAR8* buffer, INT32 size, INT32* offset) {
+    INT32 pattern_len = sizeof(Original_warning) / sizeof(INT16);
+    INT32 patched_count = 0;
+    if (size < pattern_len) return 0;
+    for (INT32 i = 0; i <= size - pattern_len; ++i) {
+        BOOLEAN match = TRUE;
+        for (INT32 j = 0; j < pattern_len; ++j) {
+            if (Original_warning[j] != -1 && (UINT8)buffer[i + j] != (UINT8)Original_warning[j]) {
+                match = FALSE; break;
+            }
+        }
+        if (match) {
+            i -= 4;
+            *offset = i;
+            buffer[i] = Patched_warning;
+            return 1;
+        }
+    }
+    return patched_count;
+}
+// ===========================================================================
+
 INT32 patch_abl_bootstate(CHAR8* buffer, INT32 size,
                           INT8* lock_register_num, INT32* offset) {
     INT32 pattern_len = sizeof(Original) / sizeof(INT16);
@@ -583,6 +613,16 @@ BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
     if (patch_abl_gbl(data, size) != 0)
         Print_patcher("Warning: Failed to patch ABL GBL\n");
     #endif
+
+    // ===================== 启用去黄字补丁 =====================
+    INT32 warn_off = -1;
+    if (patch_warning(data, size, &warn_off)) {
+        Print_patcher("patch_warning offset : 0x%X\n", warn_off);
+    } else {
+        Print_patcher("Warning: patch_warning failed\n");
+    }
+    // ==========================================================
+
     #ifndef DISABLE_PATCH_2
     INT32 patched_adrl = patch_adrl_unlocked_to_locked(data, size, 0);
     if (patched_adrl == 0){
