@@ -96,22 +96,16 @@ patch_efisp() {
       write_log 'loader.elf 不存在，无法安装 superfastboot'
       return 1
     fi
-    # Convert patched.efi to DLL format
-    $MODDIR/bin/GenFw -e UEFI_APPLICATION -o "$RUNTIME_DIR/patched.dll" "$RUNTIME_DIR/patched.efi" >> "$LOG_FILE" 2>&1
-    if [ ! -f "$RUNTIME_DIR/patched.dll" ]; then
-      write_log 'GenFw 转换失败'
-  return 1
-    fi
-    # Inject loader into DLL
-    $MODDIR/bin/elf_inject "$RUNTIME_DIR/patched.dll" "$MODDIR/loader.elf" "$RUNTIME_DIR/injected.dll" >> "$LOG_FILE" 2>&1
+    # Inject loader into patched.efi (outputs DLL format)
+    $MODDIR/bin/elf_inject "$MODDIR/loader.elf" "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/injected.dll" >> "$LOG_FILE" 2>&1
     if [ ! -f "$RUNTIME_DIR/injected.dll" ]; then
       write_log 'elf_inject 注入失败'
       return 1
     fi
-    # Convert back to EFI
+    # Convert DLL back to EFI
     $MODDIR/bin/GenFw -e UEFI_APPLICATION -o "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/injected.dll" >> "$LOG_FILE" 2>&1
     if [ ! -f "$RUNTIME_DIR/patched.efi" ]; then
-      write_log 'GenFw 最终转换失败'
+      write_log 'GenFw 转换失败'
       return 1
     fi
     write_log 'superfastboot loader 注入完成'
