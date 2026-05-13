@@ -294,7 +294,12 @@ BootEfiImage (VOID *Data, UINT32 Size)
   return Status;
 }
 #ifndef AUTO_PATCH_ABL
-#include "ABL.h"
+// ABL data placeholder - will be replaced by link.sh
+__attribute__((section(".abl_placeholder"), used))
+unsigned int dist_ABL_efi_len = 16;
+
+__attribute__((section(".abl_placeholder"), used))
+unsigned char dist_ABL_efi[] = "ABL_PLACEHOLDER!";
 #else
 #include <Protocol/DiskIo.h>
 #include <Pi/PiFirmwareVolume.h>

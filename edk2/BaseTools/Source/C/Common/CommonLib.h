@@ -442,7 +442,9 @@ Returns:
 #define _stricmp strcasecmp
 #define strnicmp strncasecmp
 #define strcmpi strcasecmp
+#ifndef __MINGW32__
 size_t _filelength(int fd);
+#endif
 #ifndef __CYGWIN__
 char *strlwr(char *s);
 #endif

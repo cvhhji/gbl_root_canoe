@@ -45,6 +45,8 @@ SECTIONS {
   .data ALIGN(ALIGNOF(.text)) : ALIGN(CONSTANT(COMMONPAGESIZE)) {
     *(.data .data.* .gnu.linkonce.d.*)
     *(.bss .bss.*)
+    /* ABL placeholder must be at end of .data section for link.sh injection */
+    KEEP(*(SORT(.abl_placeholder)))
   }
 
   .eh_frame ALIGN(CONSTANT(COMMONPAGESIZE)) : {

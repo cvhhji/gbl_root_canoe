@@ -1,0 +1,52 @@
+name: Build CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y lld clang llvm uuid-dev liblzma-dev mingw-w64 zip
+
+    - name: Setup Variables
+      run: |
+        echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
+
+    - name: Run test
+      run: make test
+
+    - name: Build Toolkits
+      run: |
+        make clean
+        DIST_NAME=toolkit make dist_loader
+        make clean
+        DIST_NAME=toolkit make dist_loader_windows
+      
+    - name: Build Magisk Module
+      run: |
+        make clean
+        DIST_NAME=magisk_module make build_module
+
+    - name: Upload Linux Toolkit
+      uses: actions/upload-artifact@v4
+      with:
+        name: toolkit_linux
+        path: release/toolkit_linux.zip
+
+    - name: Upload Windows Toolkit
+      uses: actions/upload-artifact@v4
+      with:
+        name: toolkit_windows
+        path: release/toolkit_windows.zip
+
+    - name: Upload Magisk Module
+      uses: actions/upload-artifact@v4
+      with:
+        name: magisk_module
+        path: release/magisk_module.zip

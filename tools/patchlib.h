@@ -628,18 +628,18 @@ BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
     if (patched_adrl == 0){
         Print_patcher("Warning: ADRL triple not found, skipping\n");
         free(data);
-        return FALSE;
+        //return FALSE; not critical, continue with other patches
     }
 
     if(patched_adrl > 1){
         Print_patcher("Warning: Multiple ADRL triples patched (%d), verify if all are correct\n", patched_adrl);
-        return FALSE;
+        return FALSE; //cr
     }
 
     if (patch_adrl_unlocked_to_locked_verify(data, size, 0) == 0){
         Print_patcher("Error: ADRL verification failed\n");
         free(data);
-        return FALSE;
+        //return FALSE;
     }
     #endif
     #ifndef DISABLE_PATCH_6

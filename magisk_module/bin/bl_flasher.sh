@@ -73,7 +73,10 @@ current_pid() {
 }
 # extractfv and patch_abl from abl_dest
 # 0 success, 1 failed 2 new ABL version with GBL vulnerability detected, skipping BL flash to preserve BL version
+# $1: abl partition path, $2: install_superfastboot (optional, "with-superfastboot" to enable), $3: debug_mode (optional, "debug" to skip flash)
 patch_efisp() {
+  install_superfastboot="${2:-no-superfastboot}"
+  debug_mode="${3:-no-debug}"
   rm "$RUNTIME_DIR/patched.efi" 2>/dev/null || true
   rm "$RUNTIME_DIR/patch.log" 2>/dev/null || true
   rm "$RUNTIME_DIR/LinuxLoader.efi" 2>/dev/null || true
@@ -85,6 +88,35 @@ patch_efisp() {
     write_log '补丁应用失败'
     return 1
   fi
+
+  # If superfastboot is enabled, inject loader.elf
+  if [ "$install_superfastboot" = "with-superfastboot" ]; then
+    write_log '正在注入 superfastboot loader...'
+    if [ ! -f "$MODDIR/loader.elf" ]; then
+      write_log 'loader.elf 不存在，无法安装 superfastboot'
+      return 1
+    fi
+    # Inject loader into patched.efi (outputs DLL format)
+    $MODDIR/bin/elf_inject "$MODDIR/loader.elf" "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/injected.dll" >> "$LOG_FILE" 2>&1
+    if [ ! -f "$RUNTIME_DIR/injected.dll" ]; then
+      write_log 'elf_inject 注入失败'
+      return 1
+    fi
+    # Convert DLL back to EFI
+    $MODDIR/bin/GenFw -e UEFI_APPLICATION -o "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/injected.dll" >> "$LOG_FILE" 2>&1
+    if [ ! -f "$RUNTIME_DIR/patched.efi" ]; then
+      write_log 'GenFw 转换失败'
+      return 1
+    fi
+    write_log 'superfastboot loader 注入完成'
+  fi
+
+  # Skip flash in debug mode
+  if [ "$debug_mode" = "debug" ]; then
+    write_log "调试模式：跳过 efisp 分区刷写，文件已保存在 $RUNTIME_DIR/patched.efi"
+    return 0
+  fi
+
   #flash
   if ! blockdev --setrw "/dev/block/by-name/efisp" >> "$LOG_FILE" 2>&1; then
     write_log 'efisp 分区设置可写失败'
@@ -162,6 +194,25 @@ UPDATED_AT=${_upd}"
 
 run_flash() {
   update_efisp="${1:-skip-efisp}"
+  install_superfastboot="no-superfastboot"
+  debug_mode="no-debug"
+  # Parse mode
+  case "$update_efisp" in
+    "update-efisp-with-superfastboot")
+      update_efisp="update-efisp"
+      install_superfastboot="with-superfastboot"
+      ;;
+    "debug")
+      debug_mode="debug"
+      update_efisp="skip-efisp"
+      ;;
+    "debug-with-superfastboot")
+      debug_mode="debug"
+      update_efisp="update-efisp"
+      install_superfastboot="with-superfastboot"
+      ;;
+  esac
+
   ensure_runtime
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     write_log '已有刷写任务在执行，拒绝重复启动'
@@ -182,13 +233,42 @@ run_flash() {
 
   write_state 'running' "正在将镜像刷写到槽位 $target_slot"
   write_log "当前槽位: $current_slot  目标槽位: $target_slot"
+
+  # Debug mode: process but don't flash
+  if [ "$debug_mode" = "debug" ]; then
+    write_log "调试模式：仅处理不刷写"
+    abl_part=$(partition_path abl "$target_slot")
+    if [ "$update_efisp" = 'update-efisp' ] || [ "$update_efisp" = '1' ] || [ "$update_efisp" = 'true' ]; then
+      patch_efisp "$abl_part" "$install_superfastboot" "$debug_mode"
+      ret=$?
+      if [ $ret -eq 0 ]; then
+        write_state 'success' "调试完成，文件保存在 $RUNTIME_DIR"
+        write_log "调试完成，生成的文件：$RUNTIME_DIR/patched.efi"
+      else
+     write_state 'error' '调试过程中出错'
+        write_log '调试失败，请查看日志'
+      fi
+    else
+      write_log '调试模式下未勾选 efisp 更新，仅提取 ABL'
+      rm "$RUNTIME_DIR/LinuxLoader.efi" 2>/dev/null || true
+      $MODDIR/bin/extractfv -o "$RUNTIME_DIR" -v "$abl_part" >> "$LOG_FILE" 2>&1
+      if [ -f "$RUNTIME_DIR/LinuxLoader.efi" ]; then
+        write_state 'success' "调试完成，ABL 已提取到 $RUNTIME_DIR/LinuxLoader.efi"
+        write_log "调试完成，提取的 ABL：$RUNTIME_DIR/LinuxLoader.efi"
+      else
+        write_state 'error' 'ABL 提取失败'
+      fi
+    fi
+    exit 0
+  fi
+
   efisp_failed='0'
   abl_part=$(partition_path abl "$target_slot")
 
   if [ "$update_efisp" = 'update-efisp' ] || [ "$update_efisp" = '1' ] || [ "$update_efisp" = 'true' ]; then
     #patch abl and flash efisp first, since it's the only one that can brick the device if something goes wrong
     #0 success, 1 failed, 2 new ABL version with GBL vulnerability detected
-    patch_efisp "$abl_part"
+    patch_efisp "$abl_part" "$install_superfastboot" "$debug_mode"
     ret=$?
     case $ret in
       0) ;; # 成功，继续

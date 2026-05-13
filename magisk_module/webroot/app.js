@@ -27,6 +27,8 @@ const elements = {
   nextConfirmButton: document.getElementById("nextConfirmButton"),
   cancelConfirmButton: document.getElementById("cancelConfirmButton"),
   updateEfispCheckbox: document.getElementById("updateEfispCheckbox"),
+  installSuperfastbootCheckbox: document.getElementById("installSuperfastbootCheckbox"),
+  debugModeCheckbox: document.getElementById("debugModeCheckbox"),
 };
 
 function getKsuBridge() {
@@ -184,17 +186,40 @@ function closeConfirmModal() {
 function openConfirmModal() {
   const targetSlot = state.status?.TARGET_SLOT || "?";
   const withEfisp = Boolean(elements.updateEfispCheckbox?.checked);
+  const withSuperfastboot = Boolean(elements.installSuperfastbootCheckbox?.checked);
+  const debugMode = Boolean(elements.debugModeCheckbox?.checked);
+
+  if (withSuperfastboot && !withEfisp) {
+    toast("安装 superfastboot 需要同时勾选\"更新 efisp\"");
+    return;
+  }
+
   state.confirmStep = 1;
-  elements.confirmText.textContent = withEfisp
-    ? `第一次确认: 将把当前槽位的 BL 分区拷贝到槽位 ${targetSlot}，并更新 efisp。请确认槽位无误。`
-    : `第一次确认: 将把当前槽位的 BL 分区拷贝到槽位 ${targetSlot}，不更新 efisp。请确认槽位无误。`;
-  elements.nextConfirmButton.textContent = "继续确认";
+  let confirmMsg = debugMode
+    ? "调试模式：将执行所有处理流程但不刷写分区，生成的文件保存在 tmp 目录。"
+    : `第一次确认: 将把当前槽位的 BL 分区拷贝到槽位 ${targetSlot}`;
+
+  if (!debugMode) {
+    if (withEfisp) {
+    confirmMsg += withSuperfastboot
+        ? "，并更新 efisp（包含 superfastboot loader）。"
+        : "，并更新 efisp。";
+    } else {
+      confirmMsg += "，不更新 efisp。";
+    }
+    confirmMsg += "请确认槽位无误。";
+  }
+
+  elements.confirmText.textContent = confirmMsg;
+  elements.nextConfirmButton.textContent = debugMode ? "开始调试" : "继续确认";
   elements.confirmModal.classList.remove("hidden");
   elements.confirmModal.setAttribute("aria-hidden", "false");
 }
 
 function handleConfirmProgress() {
-  if (state.confirmStep === 1) {
+  const debugMode = Boolean(elements.debugModeCheckbox?.checked);
+
+  if (state.confirmStep === 1 && !debugMode) {
     state.confirmStep = 2;
     elements.confirmText.textContent =
       "第二次确认: 这是高风险写入操作，错误操作可能导致目标槽位无法启动。确认后将立即开始刷写。";
@@ -207,21 +232,31 @@ function handleConfirmProgress() {
 }
 
 function startFlash() {
-  const flashMode = elements.updateEfispCheckbox?.checked ? "update-efisp" : "skip-efisp";
+  const withEfisp = elements.updateEfispCheckbox?.checked;
+  const withSuperfastboot = elements.installSuperfastbootCheckbox?.checked;
+  const debugMode = elements.debugModeCheckbox?.checked;
+
+  let flashMode = "skip-efisp";
+  if (debugMode) {
+    flashMode = withSuperfastboot ? "debug-with-superfastboot" : "debug";
+  } else if (withEfisp) {
+    flashMode = withSuperfastboot ? "update-efisp-with-superfastboot" : "update-efisp";
+  }
+
   try {
     const output = parseKeyValueOutput(runScript("start", flashMode));
     if (output.ALREADY_RUNNING) {
-      toast("已有刷写任务在运行");
+    toast("已有刷写任务在运行");
     } else if (output.STARTED === "1") {
-      toast("刷写任务已启动");
+      toast(debugMode ? "调试任务已启动" : "刷写任务已启动");
     } else if (output.FINISHED === "success") {
-      toast("刷写已完成");
+      toast(debugMode ? "调试完成" : "刷写已完成");
     } else if (output.FINISHED === "warning") {
       toast("BL 刷写完成，但 efisp 未更新");
     } else if (output.FINISHED === "error") {
-      toast("刷写任务已结束（失败）");
+    toast("任务已结束（失败）");
     } else {
-      toast("刷写任务启动失败");
+    toast("任务启动失败");
     }
   } catch (error) {
     toast(`启动失败: ${error.message}`);
