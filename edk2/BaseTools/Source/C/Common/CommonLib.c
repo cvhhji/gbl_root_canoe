@@ -564,12 +564,14 @@ Returns:
 
 #ifdef __GNUC__
 
+#ifndef __MINGW32__
 size_t _filelength(int fd)
 {
   struct stat stat_buf;
   fstat(fd, &stat_buf);
   return stat_buf.st_size;
 }
+#endif
 
 #ifndef __CYGWIN__
 char *strlwr(char *s)
