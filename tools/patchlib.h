@@ -490,6 +490,20 @@ INT32 patch_adrl_unlocked_to_locked(CHAR8* buffer, INT32 size, UINT64 load_base)
     return patched;
 }
 
+CHAR8 keyword []="is not allowed in Lock State";
+BOOLEAN check_sub_string(CHAR8* str,CHAR8* keyword){
+    INT32 len = 0;
+    INT32 str_len = 0;
+    while(str[str_len]) str_len++;
+    while(keyword[len]) len++;
+    for (INT32 i = 0; i <= str_len - len; ++i) {
+        if (memcmp_patcher(str + i, keyword, len) == 0) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 BOOLEAN patch_string_jump(CHAR8* buffer, INT32 size) {
     BOOLEAN patched = FALSE;
     for(int i = 0; i < size - 4; i += 4) {
