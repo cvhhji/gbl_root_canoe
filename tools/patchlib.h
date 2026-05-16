@@ -490,69 +490,6 @@ INT32 patch_adrl_unlocked_to_locked(CHAR8* buffer, INT32 size, UINT64 load_base)
     return patched;
 }
 
-INT32 patch_adrl_unlocked_to_locked_verify(CHAR8* buffer, INT32 size, UINT64 load_base) {
-    if (size < 24) return 0;
-    INT32 patched = 0;
-
-    for (INT32 i = 0; i <= size - 24; i += 4) {
-        DecodedInst a0 = decode_at(buffer, i);
-        DecodedInst a1 = decode_at(buffer, i + 4);
-        DecodedInst b0 = decode_at(buffer, i + 8);
-        DecodedInst b1 = decode_at(buffer, i + 12);
-
-        if (a0.type != INST_ADRP || a1.type != INST_ADD_X_IMM) continue;
-        if (a1.rt != a0.rt || a1.rn != a0.rt) continue;
-
-        if (b0.type != INST_ADRP || b1.type != INST_ADD_X_IMM) continue;
-        if (b1.rt != b0.rt || b1.rn != b0.rt) continue;
-
-
-        UINT8 xa = a0.rt, xb = b0.rt;
-        if (xa == xb) continue;
-
-        INT64 off0 = calc_adrl_file_offset(buffer, i,      load_base);
-        INT64 off1 = calc_adrl_file_offset(buffer, i + 8,  load_base);
-
-        if (!str_at(buffer, size, off0, "locked")) continue;
-        if (!str_at(buffer, size, off1, "locked")) continue;
-
-        BOOLEAN match = FALSE;
-        for(int j=i+16; j<=i+40;j+=4){
-            DecodedInst c0 = decode_at(buffer, j);
-            DecodedInst c1 = decode_at(buffer, j + 4);
-            if(c0.type == INST_ADRP && c1.type == INST_ADD_X_IMM){
-                INT64 offc = calc_adrl_file_offset(buffer, j, load_base);
-                if(str_at(buffer, size, offc, "androidboot.vbmeta.device_state")){
-                    match = TRUE;
-                    break;
-                }
-            }
-        }
-        if (!match) continue;
-
-        Print_patcher("Found ADRL triple at 0x%X:\n", i);
-        Print_patcher("  [0x%X] ADRP+ADD X%d -> file:0x%llX \"locked\"\n",
-               i, xa, (unsigned long long)off0);
-        Print_patcher("  [0x%X] ADRP+ADD X%d -> file:0x%llX \"locked\"\n",
-               i+8, xb, (unsigned long long)off1);
-        patched++;
-        i += 20;
-    }
-    return patched;
-}
-CHAR8 keyword []="is not allowed in Lock State";
-BOOLEAN check_sub_string(CHAR8* str,CHAR8* keyword){
-    INT32 len = 0;
-    INT32 str_len = 0;
-    while(str[str_len]) str_len++;
-    while(keyword[len]) len++;
-    for (INT32 i = 0; i <= str_len - len; ++i) {
-        if (memcmp_patcher(str + i, keyword, len) == 0) {
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
 BOOLEAN patch_string_jump(CHAR8* buffer, INT32 size) {
     BOOLEAN patched = FALSE;
     for(int i = 0; i < size - 4; i += 4) {
@@ -594,12 +531,6 @@ BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
     if(patched_adrl > 1){
         Print_patcher("Warning: Multiple ADRL triples patched (%d), verify if all are correct\n", patched_adrl);
         return FALSE; //cr
-    }
-
-    if (patch_adrl_unlocked_to_locked_verify(data, size, 0) == 0){
-        Print_patcher("Error: ADRL verification failed\n");
-        free(data);
-        //return FALSE;
     }
     #endif
     #ifndef DISABLE_PATCH_6
