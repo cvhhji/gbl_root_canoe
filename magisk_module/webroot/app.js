@@ -45,9 +45,20 @@ function toast(message) {
 
 function moduleInfo() {
   const bridge = getKsuBridge();
-  if (!bridge?.moduleInfo) throw new Error("当前页面不在 KernelSU WebUI 环境中");
-  const raw = bridge.moduleInfo();
-  return typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (!bridge) throw new Error("当前页面不在 KernelSU / APatch WebUI 环境中");
+
+  if (bridge.moduleInfo) {
+    const raw = bridge.moduleInfo();
+    return typeof raw === "string" ? JSON.parse(raw) : raw;
+  }
+
+  const found = extractStdout(
+    bridge.exec(
+      'for d in /data/adb/modules/*/; do [ -f "${d}bin/bl_flasher.sh" ] && printf "%s" "${d%/}" && break; done'
+    )
+  ).trim();
+  if (!found) throw new Error("APatch: 无法定位模块目录，请确认模块已启用");
+  return { moduleDir: found };
 }
 
 function extractStdout(raw) {
