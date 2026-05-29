@@ -21,7 +21,7 @@
 #define AVB_FOOTER_SIZE 64
 
 #define MAX_PATH_LEN 512
-#define MAX_CMD_LEN 1024
+#define MAX_CMD_LEN 2048
 #define MAX_INPUT_LEN 256
 
 static const char *fastboot_path = "fastboot";
@@ -88,8 +88,7 @@ static int file_exists(const char *path) {
 
 static int get_exe_dir(char *buf, size_t buf_size) {
 #ifdef _WIN32
-    extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
-    unsigned long len = GetModuleFileNameA(NULL, buf, (unsigned long)buf_size);
+    DWORD len = GetModuleFileNameA(NULL, buf, (DWORD)buf_size);
     if (len == 0 || len >= buf_size) return -1;
 #else
     ssize_t len = readlink("/proc/self/exe", buf, buf_size - 1);
