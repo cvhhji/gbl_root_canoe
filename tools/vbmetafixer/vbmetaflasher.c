@@ -21,11 +21,18 @@
 #define AVB_FOOTER_SIZE 64
 
 #define MAX_PATH_LEN 512
-#define MAX_CMD_LEN 2048
+#define MAX_CMD_LEN 1024
 #define MAX_INPUT_LEN 256
 
 static const char *fastboot_path = "fastboot";
 static const char *adb_path = "adb";
+
+#ifdef _WIN32
+static void set_console_utf8(void) {
+    SetConsoleOutputCP(65001);
+    SetConsoleCP(65001);
+}
+#endif
 
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
@@ -88,7 +95,8 @@ static int file_exists(const char *path) {
 
 static int get_exe_dir(char *buf, size_t buf_size) {
 #ifdef _WIN32
-    DWORD len = GetModuleFileNameA(NULL, buf, (DWORD)buf_size);
+    extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
+    unsigned long len = GetModuleFileNameA(NULL, buf, (unsigned long)buf_size);
     if (len == 0 || len >= buf_size) return -1;
 #else
     ssize_t len = readlink("/proc/self/exe", buf, buf_size - 1);
@@ -264,7 +272,7 @@ static int run_backup(const char *exe_dir) {
     fflush(stdout);
     getchar();
 
-    snprintf(cmd, sizeof(cmd), "\"%s\" -o \"%s\"", backup_bin, vbmetas_dir);
+    snprintf(cmd, sizeof(cmd), "%s -o %s", backup_bin, vbmetas_dir);
     printf("\n执行: %s\n", cmd);
 
     int ret = system(cmd);
@@ -297,8 +305,7 @@ static int check_and_run_backup(const char *exe_dir) {
 
 int main(int argc, char **argv) {
 #ifdef _WIN32
-    SetConsoleOutputCP(65001);
-    SetConsoleCP(65001);
+    set_console_utf8();
 #endif
 
     char exe_dir[MAX_PATH_LEN];
@@ -377,7 +384,8 @@ int main(int argc, char **argv) {
         read_line("是否继续修补/刷写？(y/n): ", choice, sizeof(choice));
         printf("-----------------------------------------------\n");
 
-        if (strcmp(choice, "n") == 0 || strcmp(choice, "N") == 0) {
+        if (strcmp(choice, "n") == 0 || strcmp(choice, "N") == 0 ||
+            strcmp(choice, "no") == 0 || strcmp(choice, "NO") == 0) {
             printf("已选择退出，程序结束\n");
             break;
         }
