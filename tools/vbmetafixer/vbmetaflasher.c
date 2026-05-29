@@ -2,11 +2,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <locale.h>
 
 #ifdef _WIN32
 #include <direct.h>
-#include <windows.h>
 #define mkdir_p(d) _mkdir(d)
 #define PATH_SEP '\\'
 #else
@@ -22,13 +20,13 @@
 #define AVB_FOOTER_SIZE 64
 
 #define MAX_PATH_LEN 512
-#define MAX_CMD_LEN 2048
+#define MAX_CMD_LEN 1024
 #define MAX_INPUT_LEN 256
 
 static const char *fastboot_path = "fastboot";
-static int is_chinese = 0;
+static const char *adb_path = "adb";
 
-/* ---- big-endian helpers ---- */
+/* ---- 大小端转换 ---- */
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
            ((uint32_t)p[2] << 8)  | (uint32_t)p[3];
@@ -50,7 +48,7 @@ static void put_be64(uint8_t *p, uint64_t v) {
     put_be32(p + 4, (uint32_t)v);
 }
 
-/* ---- file I/O ---- */
+/* ---- 文件读写 ---- */
 static uint8_t *read_file(const char *path, size_t *out_size) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
@@ -60,10 +58,8 @@ static uint8_t *read_file(const char *path, size_t *out_size) {
     fseek(f, 0, SEEK_SET);
 
     if (sz <= 0) { fclose(f); return NULL; }
-
     uint8_t *buf = malloc(sz);
     if (!buf) { fclose(f); return NULL; }
-
     if (fread(buf, 1, sz, f) != (size_t)sz) {
         free(buf);
         fclose(f);
@@ -77,7 +73,6 @@ static uint8_t *read_file(const char *path, size_t *out_size) {
 static int write_file(const char *path, const uint8_t *data, size_t size) {
     FILE *f = fopen(path, "wb");
     if (!f) return -1;
-
     if (fwrite(data, 1, size, f) != size) {
         fclose(f);
         return -1;
@@ -92,7 +87,7 @@ static int file_exists(const char *path) {
     return 0;
 }
 
-/* ---- exe directory ---- */
+/* ---- 获取程序所在目录 ---- */
 static int get_exe_dir(char *buf, size_t buf_size) {
 #ifdef _WIN32
     extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
@@ -114,7 +109,7 @@ static int get_exe_dir(char *buf, size_t buf_size) {
     return 0;
 }
 
-/* ---- AVB footer / transplant ---- */
+/* ---- AVB Footer 操作 ---- */
 static int read_avb_footer(const uint8_t *data, size_t len,
                            uint64_t *original_size, uint64_t *vbmeta_offset,
                            uint64_t *vbmeta_size) {
@@ -146,94 +141,109 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
     size_t vbmeta_size;
     uint8_t *vbmeta_data = read_file(vbmeta_path, &vbmeta_size);
     if (!vbmeta_data) {
-        if(is_chinese) fprintf(stderr, "读取 vbmeta 失败: %s\n", vbmeta_path);
-        else fprintf(stderr, "Failed to read vbmeta: %s\n", vbmeta_path);
+        fprintf(stderr, "读取VBMeta失败: %s\n", vbmeta_path);
         return -1;
     }
-
     size_t target_size;
     uint8_t *target_data = read_file(source_image, &target_size);
     if (!target_data) {
-        if(is_chinese) fprintf(stderr, "读取镜像失败: %s\n", source_image);
-        else fprintf(stderr, "Failed to read source image: %s\n", source_image);
+        fprintf(stderr, "读取镜像失败: %s\n", source_image);
         free(vbmeta_data);
         return -1;
     }
-
     uint64_t original_size;
     uint64_t existing_offset, existing_size;
-    if (read_avb_footer(target_data, target_size, &original_size, &existing_offset, &existing_size)) {
-        if(is_chinese) printf("  目标已存在 VBMeta，原始数据大小: %llu\n", (unsigned long long)original_size);
-        else printf("  Target has existing VBMeta, original data size: %llu\n", (unsigned long long)original_size);
+    if (read_avb_footer(target_data, target_size,
+                        &original_size, &existing_offset, &existing_size)) {
+        printf("  检测到已有AVB Footer，原始数据大小: %llu\n",
+               (unsigned long long)original_size);
     } else {
         original_size = target_size - vbmeta_size - AVB_FOOTER_SIZE;
-        if(is_chinese) printf("  目标无 VBMeta，计算原始大小: %llu\n", (unsigned long long)original_size);
-        else printf("  Target has no VBMeta, calculated original size: %llu\n", (unsigned long long)original_size);
+        printf("  无AVB Footer，计算原始数据大小: %llu\n",
+               (unsigned long long)original_size);
     }
-
     uint64_t vbmeta_offset = original_size;
     uint64_t footer_offset = target_size - AVB_FOOTER_SIZE;
     uint64_t required = original_size + vbmeta_size + AVB_FOOTER_SIZE;
-
     if (required > target_size) {
-        if(is_chinese) fprintf(stderr, "空间不足: 需要 %llu，现有 %llu\n", (unsigned long long)required, (unsigned long long)target_size);
-        else fprintf(stderr, "Insufficient space: need %llu, have %llu\n", (unsigned long long)required, (unsigned long long)target_size);
+        fprintf(stderr, "空间不足: 需要 %llu 字节，当前 %llu 字节\n",
+                (unsigned long long)required, (unsigned long long)target_size);
         free(vbmeta_data);
         free(target_data);
         return -1;
     }
-
     uint8_t *output = calloc(1, target_size);
     if (!output) {
         free(vbmeta_data);
         free(target_data);
         return -1;
     }
-
     memcpy(output, target_data, (size_t)original_size);
     memcpy(output + vbmeta_offset, vbmeta_data, vbmeta_size);
     create_avb_footer(output + footer_offset, original_size, vbmeta_offset, vbmeta_size);
-
     free(target_data);
     free(vbmeta_data);
-
     if (write_file(output_path, output, target_size) != 0) {
-        if(is_chinese) fprintf(stderr, "写入修补镜像失败: %s\n", output_path);
-        else fprintf(stderr, "Failed to write transplanted image: %s\n", output_path);
+        fprintf(stderr, "写入修补镜像失败: %s\n", output_path);
         free(output);
         return -1;
     }
-
     uint64_t v_orig, v_off, v_sz;
     if (read_avb_footer(output, target_size, &v_orig, &v_off, &v_sz)) {
         if (v_off + v_sz <= target_size && memcmp(output + v_off, AVB_MAGIC, 4) == 0) {
-            if(is_chinese) printf("  VBMeta 修补验证成功\n");
-            else printf("  VBMeta transplant verified OK\n");
-        } else {
-            if(is_chinese) fprintf(stderr, "  VBMeta 修补验证失败\n");
-            else fprintf(stderr, "  VBMeta transplant verification failed\n");
             free(output);
-            return -1;
+            return 0;
         }
     }
-
     free(output);
-    return 0;
+    fprintf(stderr, "VBMeta校验失败\n");
+    return -1;
 }
 
-/* ---- partition ---- */
+/* ---- 去除分区槽位后缀 _a/_b/_ab ---- */
 static void strip_slot_suffix(const char *partition, char *base, size_t base_size) {
     size_t len = strlen(partition);
     if (len > 3 && strcmp(partition + len - 3, "_ab") == 0) {
         snprintf(base, base_size, "%.*s", (int)(len - 3), partition);
-    } else if (len > 2 && (strcmp(partition + len - 2, "_a") == 0 || strcmp(partition + len - 2, "_b") == 0)) {
+    } else if (len > 2 && (strcmp(partition + len - 2, "_a") == 0 ||
+                           strcmp(partition + len - 2, "_b") == 0)) {
         snprintf(base, base_size, "%.*s", (int)(len - 2), partition);
     } else {
         snprintf(base, base_size, "%s", partition);
     }
 }
 
-/* ---- backup ---- */
+/* ---- 重启到 Fastboot ---- */
+static int reboot_fastboot(void) {
+    char cmd[MAX_CMD_LEN];
+    printf("\n>>> 正在重启设备进入 Fastboot 模式...\n");
+    snprintf(cmd, sizeof(cmd), "%s reboot bootloader", adb_path);
+    printf("执行命令: %s\n", cmd);
+    int ret = system(cmd);
+    if (ret != 0) {
+        fprintf(stderr, "⚠️  自动进入Fastboot失败，请手动进入！\n");
+    }
+    return ret;
+}
+
+/* ---- 刷写分区 ---- */
+static int flash_partition(const char *partition, const char *image_path) {
+    char cmd[MAX_CMD_LEN];
+    printf("\n>>> 开始刷写分区 %s ...\n", partition);
+    snprintf(cmd, sizeof(cmd), "%s flash %s \"%s\"", fastboot_path, partition, image_path);
+    printf("执行命令: %s\n", cmd);
+    return system(cmd);
+}
+
+/* ---- 读取一行输入 ---- */
+static void read_line(const char *prompt, char *buf, size_t size) {
+    printf("%s", prompt);
+    fflush(stdout);
+    if (fgets(buf, (int)size, stdin))
+        buf[strcspn(buf, "\r\n")] = '\0';
+}
+
+/* ---- 备份检测与执行 ---- */
 static int run_backup(const char *exe_dir) {
     char backup_bin[MAX_PATH_LEN];
     char vbmetas_dir[MAX_PATH_LEN];
@@ -247,41 +257,30 @@ static int run_backup(const char *exe_dir) {
     snprintf(vbmetas_dir, sizeof(vbmetas_dir), "%s%cvbmetas", exe_dir, PATH_SEP);
 
     if (!file_exists(backup_bin)) {
-        if(is_chinese) fprintf(stderr, "备份工具不存在: %s\n", backup_bin);
-        else fprintf(stderr, "Backup tool not found: %s\n", backup_bin);
+        fprintf(stderr, "\nERROR: 备份工具不存在: %s\n", backup_bin);
+        printf("按回车退出...");
+        getchar();
         return -1;
     }
 
-    if(is_chinese){
-        printf("==========================================================\n");
-        printf("未检测到备份！必须先备份 VBMeta 才能继续\n");
-        printf("==========================================================\n\n");
-        printf("请操作：\n");
-        printf("  1. 重启手机进入安卓系统\n");
-        printf("  2. 连接 USB\n");
-        printf("  3. 给 ADB 授权 root 权限\n\n");
-        printf("按回车开始备份...");
-    }else{
-        printf("==========================================================\n");
-        printf("No backup found. VBMeta backup is required before flashing.\n");
-        printf("==========================================================\n\n");
-        printf("Please:\n");
-        printf("  1. Reboot device to Android\n");
-        printf("  2. Connect via USB\n");
-        printf("  3. Grant root access to ADB shell\n\n");
-        printf("Press Enter to start backup...");
-    }
-
+    printf("==========================================================\n");
+    printf("未检测到VBMeta备份，必须先完成备份才能继续！\n");
+    printf("==========================================================\n\n");
+    printf("请确保：\n");
+    printf("  1. 设备正常进入安卓系统\n");
+    printf("  2. USB已连接、开启USB调试并拥有ROOT权限\n\n");
+    printf("按回车开始备份...");
     fflush(stdout);
     getchar();
 
-    snprintf(cmd, sizeof(cmd), "\"%s\" -o \"%s\"", backup_bin, vbmetas_dir);
-    printf("\n");
-    int ret = system(cmd);
+    snprintf(cmd, sizeof(cmd), "%s -o %s", backup_bin, vbmetas_dir);
+    printf("\n执行: %s\n", cmd);
 
+    int ret = system(cmd);
     if (ret != 0) {
-        if(is_chinese) fprintf(stderr, "备份失败 (代码=%d)\n", ret);
-        else fprintf(stderr, "Backup failed (ret=%d)\n", ret);
+        fprintf(stderr, "\nERROR: 备份执行失败！\n");
+        printf("按回车退出...");
+        getchar();
         return -1;
     }
     return 0;
@@ -290,221 +289,119 @@ static int run_backup(const char *exe_dir) {
 static int check_and_run_backup(const char *exe_dir) {
     char marker[MAX_PATH_LEN];
     snprintf(marker, sizeof(marker), "%s%cfinish_backup", exe_dir, PATH_SEP);
-    if (file_exists(marker)) return 0;
+    if (file_exists(marker))
+        return 0;
 
-    if (run_backup(exe_dir) != 0) return -1;
+    if (run_backup(exe_dir) != 0)
+        return -1;
 
     FILE *f = fopen(marker, "w");
-    if (f) { fprintf(f, "done\n"); fclose(f); }
-
-    if(is_chinese) printf("\n✅ 备份完成！\n\n");
-    else printf("\n✅ Backup complete.\n\n");
-
-    Sleep(1000);
+    if (f) {
+        fprintf(f, "done\n");
+        fclose(f);
+    }
+    printf("\n✅ 备份完成！\n\n");
     return 0;
 }
 
-/* ---- flash ---- */
-static int flash_partition(const char *partition, const char *image_path) {
-    char cmd[MAX_CMD_LEN];
-    snprintf(cmd, sizeof(cmd), "%s flash %s \"%s\"", fastboot_path, partition, image_path);
-    printf("$ %s\n", cmd);
-    int ret = system(cmd);
-    if (ret != 0) {
-        if(is_chinese) fprintf(stderr, "❌ 刷写失败 (代码=%d)\n", ret);
-        else fprintf(stderr, "❌ Flash failed (ret=%d)\n", ret);
-    }
-    return ret;
-}
-
-/* ---- reboot menu ---- */
-static void show_reboot_menu() {
-    if(is_chinese){
-        printf("\n==================== 重启选项 ====================\n");
-        printf("1. 重启到系统\n");
-        printf("2. 重启到 Recovery\n");
-        printf("3. 重启到 FastbootD\n");
-        printf("4. 重启到 Bootloader\n");
-        printf("5. 不重启，继续修补镜像\n");
-        printf("==================================================\n");
-        printf("请选择 [1-5]: ");
-    }else{
-        printf("\n==================== Reboot Menu ====================\n");
-        printf("1. Reboot to System\n");
-        printf("2. Reboot to Recovery\n");
-        printf("3. Reboot to FastbootD\n");
-        printf("4. Reboot to Bootloader\n");
-        printf("5. Do not reboot, continue patching\n");
-        printf("=====================================================\n");
-        printf("Select [1-5]: ");
-    }
-}
-
-static void run_reboot(int choice) {
-    char cmd[MAX_CMD_LEN];
-    switch(choice){
-        case 1: snprintf(cmd, sizeof(cmd), "%s reboot", fastboot_path); break;
-        case 2: snprintf(cmd, sizeof(cmd), "%s reboot recovery", fastboot_path); break;
-        case 3: snprintf(cmd, sizeof(cmd), "%s reboot fastboot", fastboot_path); break;
-        case 4: snprintf(cmd, sizeof(cmd), "%s reboot bootloader", fastboot_path); break;
-        default: return;
-    }
-    if(is_chinese) printf("\n执行重启命令...\n");
-    else printf("\nRebooting...\n");
-    system(cmd);
-    Sleep(1500);
-}
-
-static int ask_continue_or_exit() {
-    int c;
-    if(is_chinese){
-        printf("\n==================== 操作完成 ====================\n");
-        printf("1. 继续修补其他镜像\n");
-        printf("2. 退出程序\n");
-        printf("请选择 [1-2]: ");
-    }else{
-        printf("\n==================== Completed ====================\n");
-        printf("1. Continue patching another image\n");
-        printf("2. Exit program\n");
-        printf("Select [1-2]: ");
-    }
-    fflush(stdout);
-    scanf("%d", &c); getchar();
-    return (c == 1) ? 1 : 0;
-}
-
-/* ---- input ---- */
-static void read_line(const char *prompt, char *buf, size_t size) {
-    printf("%s", prompt);
-    fflush(stdout);
-    if (fgets(buf, (int)size, stdin))
-        buf[strcspn(buf, "\r\n")] = '\0';
-}
-
-/* ---- language detect ---- */
-static void detect_language() {
-#ifdef _WIN32
-    LANGID lang = GetUserDefaultLangID();
-    if((lang & 0x3FF) == 0x04) is_chinese = 1;
-#else
-    char *lang = getenv("LANG");
-    if(lang && strstr(lang, "zh_CN")) is_chinese = 1;
-#endif
-}
-
-/* ---- main patch flow ---- */
-static int patch_and_flash(const char *exe_dir) {
-    char partition_buf[MAX_INPUT_LEN];
-    char image_buf[MAX_PATH_LEN];
-    const char *partition_arg, *image_arg;
-
-    if(is_chinese) read_line("请输入分区名 (如 boot_a): ", partition_buf, sizeof(partition_buf));
-    else read_line("Enter partition (e.g. boot_a): ", partition_buf, sizeof(partition_buf));
-    partition_arg = partition_buf;
-
-    if(is_chinese) read_line("请输入要修补的镜像路径: ", image_buf, sizeof(image_buf));
-    else read_line("Enter image path to patch: ", image_buf, sizeof(image_buf));
-    image_arg = image_buf;
-
-    if (!file_exists(image_arg)) {
-        if(is_chinese) fprintf(stderr, "❌ 镜像不存在\n");
-        else fprintf(stderr, "❌ Image not found\n");
-        return -1;
-    }
-
-    char base_name[MAX_INPUT_LEN];
-    strip_slot_suffix(partition_arg, base_name, sizeof(base_name));
-    if(is_chinese) printf("分区: %s (基准: %s)\n", partition_arg, base_name);
-    else printf("Partition: %s (base: %s)\n", partition_arg, base_name);
-
-    char vbmeta_path[MAX_PATH_LEN];
-    snprintf(vbmeta_path, sizeof(vbmeta_path), "%s%cvbmetas%c%s.vbmeta", exe_dir, PATH_SEP, PATH_SEP, base_name);
-
-    const char *flash_image = image_arg;
-    char temp_image[MAX_PATH_LEN] = {0};
-
-    if (file_exists(vbmeta_path)) {
-        if(is_chinese) printf("✅ 找到 VBMeta 备份: %s\n", vbmeta_path);
-        else printf("✅ Found vbmeta backup: %s\n", vbmeta_path);
-
-        char temp_dir[MAX_PATH_LEN];
-        snprintf(temp_dir, sizeof(temp_dir), "%s%ctemp", exe_dir, PATH_SEP);
-        mkdir_p(temp_dir);
-        snprintf(temp_image, sizeof(temp_image), "%s%c%s.img", temp_dir, PATH_SEP, partition_arg);
-
-        if(is_chinese) printf("正在修补 VBMeta...\n");
-        else printf("Patching VBMeta...\n");
-
-        if (transplant_vbmeta(vbmeta_path, image_arg, temp_image) != 0) {
-            if(is_chinese) fprintf(stderr, "❌ 修补失败\n");
-            else fprintf(stderr, "❌ Patch failed\n");
-            remove(temp_image);
-            return -1;
-        }
-        if(is_chinese) printf("✅ 镜像修补完成！\n", temp_image);
-        else printf("✅ Image patched successfully!\n", temp_image);
-        flash_image = temp_image;
-    }
-
-    if(is_chinese) printf("\n按回车进入 Fastboot 并开始刷写...\n");
-    else printf("\nPress Enter to enter Fastboot and flash...\n");
-    getchar();
-
-    int ret = flash_partition(partition_arg, flash_image);
-    if (temp_image[0]) remove(temp_image);
-
-    if (ret == 0) {
-        if(is_chinese) printf("\n✅ 刷写成功！\n");
-        else printf("\n✅ Flash success!\n");
-    }
-    return ret;
-}
-
-/* ---- main ---- */
-int main() {
-    setlocale(LC_ALL, "");
-    detect_language();
-
+int main(int argc, char **argv) {
     char exe_dir[MAX_PATH_LEN];
     if (get_exe_dir(exe_dir, sizeof(exe_dir)) != 0) {
-        if(is_chinese) fprintf(stderr, "获取程序目录失败\n");
-        else fprintf(stderr, "Failed to get exe dir\n");
-        return 1;
-    }
-
-    if(is_chinese) printf("工作目录: %s\n", exe_dir);
-    else printf("Working dir: %s\n", exe_dir);
-
-    if (check_and_run_backup(exe_dir) != 0) {
-        if(is_chinese) printf("按回车退出...\n");
-        else printf("Press Enter to exit...\n");
+        fprintf(stderr, "获取程序目录失败\n");
+        printf("按回车退出...");
         getchar();
         return 1;
     }
+    printf("程序运行目录: %s\n\n", exe_dir);
 
-    while(1){
-        int ok = patch_and_flash(exe_dir);
-        if(ok != 0){
-            if(is_chinese) printf("\n流程异常，按回车继续...\n");
-            else printf("\nError, press Enter to continue...\n");
-            getchar();
+    // 首次运行先检查并执行备份
+    if (check_and_run_backup(exe_dir) != 0)
+        return 1;
+
+    char partition_buf[MAX_INPUT_LEN];
+    char image_buf[MAX_PATH_LEN];
+    char temp_image[MAX_PATH_LEN];
+    char vbmeta_path[MAX_PATH_LEN];
+    char base_name[MAX_INPUT_LEN];
+    char temp_dir[MAX_PATH_LEN];
+    char choice[32];
+
+    // 创建临时目录
+    snprintf(temp_dir, sizeof(temp_dir), "%s%ctemp", exe_dir, PATH_SEP);
+    mkdir_p(temp_dir);
+
+    // 循环修补+刷写
+    while (1) {
+        printf("==================== 新任务 ====================\n");
+
+        // 1. 输入分区名
+        read_line("请输入Fastboot分区名(如 boot_a / vbmeta_b): ", partition_buf, sizeof(partition_buf));
+        if (partition_buf[0] == '\0') {
+            printf("分区名为空，退出程序\n");
+            break;
+        }
+
+        // 2. 输入镜像路径
+        read_line("请输入待修补镜像完整路径: ", image_buf, sizeof(image_buf));
+        if (image_buf[0] == '\0') {
+            printf("镜像路径为空，退出程序\n");
+            break;
+        }
+        if (!file_exists(image_buf)) {
+            fprintf(stderr, "错误: 镜像文件不存在！\n");
+            printf("-----------------------------------------------\n");
             continue;
         }
 
-        show_reboot_menu();
-        int ch; scanf("%d", &ch); getchar();
+        // 3. 匹配对应VBMeta备份
+        strip_slot_suffix(partition_buf, base_name, sizeof(base_name));
+        snprintf(vbmeta_path, sizeof(vbmeta_path), "%s%cvbmetas%c%s.vbmeta",
+                 exe_dir, PATH_SEP, PATH_SEP, base_name);
 
-        if(ch >=1 && ch <=4){
-            run_reboot(ch);
-            int cont = ask_continue_or_exit();
-            if(!cont) break;
-        }else{
-            if(is_chinese) printf("\n不重启，继续修补...\n");
-            else printf("\nContinue patching...\n");
+        // 临时输出镜像名
+        snprintf(temp_image, sizeof(temp_image), "%s%c%s.img",
+                 temp_dir, PATH_SEP, partition_buf);
+
+        // 4. 执行VBMeta修补
+        printf("\n开始修补镜像...\n");
+        if (transplant_vbmeta(vbmeta_path, image_buf, temp_image) != 0) {
+            fprintf(stderr, "❌ 镜像修补失败！\n");
+            printf("-----------------------------------------------\n");
+            continue;
+        }
+        printf("✅ 镜像修补完成: %s\n", temp_image);
+
+        // 5. 按回车进入Fastboot
+        printf("\n按回车键，设备将重启进入 Fastboot...");
+        fflush(stdout);
+        getchar();
+        reboot_fastboot();
+
+        // 6. 执行刷写
+        int flash_ret = flash_partition(partition_buf, temp_image);
+        if (flash_ret == 0) {
+            printf("\n✅ 分区刷写成功！\n");
+        } else {
+            fprintf(stderr, "\n❌ 分区刷写失败！请检查连接与分区名称\n");
+        }
+
+        // 清理临时文件
+        remove(temp_image);
+
+        // 7. 询问是否继续
+        printf("\n-----------------------------------------------\n");
+        read_line("是否继续修补/刷写？(y/n): ", choice, sizeof(choice));
+        printf("-----------------------------------------------\n");
+
+        // 判断退出/继续
+        if (strcmp(choice, "n") == 0 || strcmp(choice, "N") == 0 ||
+            strcmp(choice, "no") == 0 || strcmp(choice, "NO") == 0) {
+            printf("已选择退出，程序结束\n");
+            break;
         }
     }
 
-    if(is_chinese) printf("\n程序退出\n");
-    else printf("\nExit\n");
+    printf("\n按回车键关闭窗口...");
+    getchar();
     return 0;
 }
