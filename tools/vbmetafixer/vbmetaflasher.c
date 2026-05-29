@@ -25,8 +25,6 @@
 
 static const char *fastboot_path = "fastboot";
 
-/* ---- big-endian helpers ---- */
-
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
            ((uint32_t)p[2] << 8)  | (uint32_t)p[3];
@@ -47,8 +45,6 @@ static void put_be64(uint8_t *p, uint64_t v) {
     put_be32(p, (uint32_t)(v >> 32));
     put_be32(p + 4, (uint32_t)v);
 }
-
-/* ---- file I/O ---- */
 
 static uint8_t *read_file(const char *path, size_t *out_size) {
     FILE *f = fopen(path, "rb");
@@ -91,8 +87,6 @@ static int file_exists(const char *path) {
     return 0;
 }
 
-/* ---- exe directory resolution ---- */
-
 static int get_exe_dir(char *buf, size_t buf_size) {
 #ifdef _WIN32
     extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
@@ -113,8 +107,6 @@ static int get_exe_dir(char *buf, size_t buf_size) {
         strcpy(buf, ".");
     return 0;
 }
-
-/* ---- AVB footer / transplant ---- */
 
 static int read_avb_footer(const uint8_t *data, size_t len,
                            uint64_t *original_size, uint64_t *vbmeta_offset,
@@ -221,8 +213,6 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
     return 0;
 }
 
-/* ---- partition name helpers ---- */
-
 static void strip_slot_suffix(const char *partition, char *base, size_t base_size) {
     size_t len = strlen(partition);
 
@@ -235,8 +225,6 @@ static void strip_slot_suffix(const char *partition, char *base, size_t base_siz
         snprintf(base, base_size, "%s", partition);
     }
 }
-
-/* ---- backup check ---- */
 
 static int run_backup(const char *exe_dir) {
     char backup_bin[MAX_PATH_LEN];
@@ -296,8 +284,6 @@ static int check_and_run_backup(const char *exe_dir) {
     return 0;
 }
 
-/* ---- flash ---- */
-
 static int flash_partition(const char *partition, const char *image_path) {
     char cmd[MAX_CMD_LEN];
     snprintf(cmd, sizeof(cmd), "%s flash %s \"%s\"", fastboot_path, partition, image_path);
@@ -308,8 +294,6 @@ static int flash_partition(const char *partition, const char *image_path) {
     return ret;
 }
 
-/* ---- input helpers ---- */
-
 static void read_line(const char *prompt, char *buf, size_t size) {
     printf("%s", prompt);
     fflush(stdout);
@@ -317,44 +301,22 @@ static void read_line(const char *prompt, char *buf, size_t size) {
         buf[strcspn(buf, "\r\n")] = '\0';
 }
 
-/* ============================== */
-/* ✅ 新增：重启选择函数（你要的功能） */
-/* ============================== */
 static void reboot_menu(void) {
     char opt[16];
     char cmd[MAX_CMD_LEN];
 
     printf("\n=============================================\n");
-    printf("Flash done! Select reboot mode:\n");
-    printf("1 = Reboot to Recovery\n");
-    printf("2 = Reboot to FastbootD\n");
-    printf("3 = Reboot to Bootloader\n");
-    printf("4 = Reboot to System\n");
-    printf("0 = Do not reboot\n");
-    printf("=============================================\n");
-    printf("Your choice: ");
+    printf("1 = Recovery | 2 = FastbootD | 3 = Bootloader | 4 = System | 0 = Cancel\n");
+    printf("Select reboot mode: ");
     fflush(stdout);
     fgets(opt, sizeof(opt), stdin);
     opt[strcspn(opt, "\r\n")] = 0;
 
-    if (!strcmp(opt, "1")) {
-        snprintf(cmd, sizeof(cmd), "%s reboot recovery", fastboot_path);
-        system(cmd);
-    } else if (!strcmp(opt, "2")) {
-        snprintf(cmd, sizeof(cmd), "%s reboot fastboot", fastboot_path);
-        system(cmd);
-    } else if (!strcmp(opt, "3")) {
-        snprintf(cmd, sizeof(cmd), "%s reboot bootloader", fastboot_path);
-        system(cmd);
-    } else if (!strcmp(opt, "4")) {
-        snprintf(cmd, sizeof(cmd), "%s reboot", fastboot_path);
-        system(cmd);
-    } else {
-        printf("Skip reboot.\n");
-    }
+    if (!strcmp(opt, "1")) snprintf(cmd, sizeof(cmd), "%s reboot recovery", fastboot_path), system(cmd);
+    else if (!strcmp(opt, "2")) snprintf(cmd, sizeof(cmd), "%s reboot fastboot", fastboot_path), system(cmd);
+    else if (!strcmp(opt, "3")) snprintf(cmd, sizeof(cmd), "%s reboot bootloader", fastboot_path), system(cmd);
+    else if (!strcmp(opt, "4")) snprintf(cmd, sizeof(cmd), "%s reboot", fastboot_path), system(cmd);
 }
-
-/* ---- usage ---- */
 
 static void usage(const char *prog) {
     printf("Usage: %s [-f fastboot_path] [partition] [image]\n\n", prog);
@@ -364,8 +326,6 @@ static void usage(const char *prog) {
     printf("If partition or image is omitted, you will be prompted interactively.\n");
     printf("Slot suffixes (_a, _b, _ab) are stripped to find matching vbmeta backup.\n");
 }
-
-/* ---- main ---- */
 
 int main(int argc, char **argv) {
     char exe_dir[MAX_PATH_LEN];
@@ -468,11 +428,10 @@ int main(int argc, char **argv) {
 
     if (ret == 0) {
         printf("\nFlash complete!\n");
-        // ======================
-        // ✅ 调用重启菜单
-        // ======================
         reboot_menu();
     }
 
+    printf("\nPress enter to exit...");
+    getchar();
     return ret;
 }
