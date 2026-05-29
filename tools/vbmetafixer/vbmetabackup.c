@@ -20,7 +20,7 @@
 #define DEVICE_TEMP_DIR "/data/local/tmp"
 #define MAX_CHAINS 32
 #define MAX_PATH_LEN 512
-#define MAX_CMD_LEN 2048
+#define MAX_CMD_LEN 1024
 #define MAX_PARTITION_NAME 128
 
 static const char *adb_path = "adb";
@@ -63,11 +63,17 @@ static size_t vbmeta_size(const struct avb_header *hdr) {
     return AVB_VBMETA_IMAGE_HEADER_SIZE + hdr->auth_block_size + hdr->aux_block_size;
 }
 
+/*
+ * Search for AVB footer by scanning backwards for "AVBf" magic.
+ * dd dumps the entire block device, so the footer may not be at the
+ * very end — there can be trailing zeros after the real partition data.
+ */
 static int find_avb_footer(const uint8_t *data, size_t len,
                            uint64_t *vb_offset, uint64_t *vb_size) {
     if (len < AVB_FOOTER_SIZE)
         return 0;
 
+    /* scan backwards in 4-byte steps looking for "AVBf" */
     size_t pos = len - AVB_FOOTER_SIZE;
     while (1) {
         if (memcmp(data + pos, AVB_FOOTER_MAGIC, 4) == 0) {
@@ -83,6 +89,7 @@ static int find_avb_footer(const uint8_t *data, size_t len,
     return 0;
 }
 
+/* returns vbmeta offset and size within partition data; -1 on error */
 static int locate_vbmeta(const uint8_t *data, size_t len,
                          size_t *out_offset, size_t *out_size) {
     uint64_t vb_offset, vb_size;
@@ -93,6 +100,7 @@ static int locate_vbmeta(const uint8_t *data, size_t len,
         return 0;
     }
 
+    /* no footer, read header directly */
     struct avb_header hdr;
     if (parse_avb_header(data, len, &hdr) != 0)
         return -1;
@@ -224,8 +232,7 @@ static int get_active_slot(char *slot, size_t slot_size) {
     pclose(fp);
 
     if (buf[0]) {
-        strncpy(slot, buf, slot_size - 1);
-        slot[slot_size - 1] = '\0';
+        snprintf(slot, slot_size, "%s", buf);
         printf("Active slot: %s\n", slot);
         return 0;
     }
@@ -240,18 +247,17 @@ static int get_active_slot(char *slot, size_t slot_size) {
     pclose(fp);
 
     if (buf[0]) {
-        snprintf(slot, slot_size - 1, "_%s", buf);
-        slot[slot_size - 1] = '\0';
+        snprintf(slot, slot_size, "_%s", buf);
         printf("Active slot: %s\n", slot);
         return 0;
     }
 
     fprintf(stderr, "Warning: cannot detect active slot, defaulting to _a\n");
-    strncpy(slot, "_a", slot_size - 1);
-    slot[slot_size - 1] = '\0';
+    snprintf(slot, slot_size, "_a");
     return 0;
 }
 
+/* pull partition from device, read into memory, delete local img, return buffer */
 static uint8_t *pull_and_read_partition(const char *partition, const char *slot,
                                         const char *output_dir, size_t *out_size) {
     char block_dev[MAX_PATH_LEN], remote_tmp[MAX_PATH_LEN];
@@ -288,10 +294,13 @@ static uint8_t *pull_and_read_partition(const char *partition, const char *slot,
     }
 
     printf("  Pulled %s (%zu bytes)\n", local_path, *out_size);
+
     remove(local_path);
+
     return data;
 }
 
+/* extract vbmeta from partition data and save as {name}.vbmeta */
 static int backup_vbmeta(const uint8_t *part_data, size_t part_size,
                          const char *name, const char *output_dir,
                          uint8_t **out_vbmeta, size_t *out_vbmeta_size) {
@@ -316,6 +325,7 @@ static int backup_vbmeta(const uint8_t *part_data, size_t part_size,
         memcpy(*out_vbmeta, part_data + vb_offset, vb_size);
         *out_vbmeta_size = vb_size;
     }
+
     return 0;
 }
 
@@ -344,25 +354,31 @@ int main(int argc, char **argv) {
     }
 
     mkdir_p(output_dir);
+
     wait_for_device();
 
     char slot[32];
     if (slot_arg) {
         if (slot_arg[0] == '_')
-            strncpy(slot, slot_arg, sizeof(slot) - 1);
+            snprintf(slot, sizeof(slot), "%s", slot_arg);
         else
-            snprintf(slot, sizeof(slot) - 1, "_%s", slot_arg);
-        slot[sizeof(slot) - 1] = '\0';
+            snprintf(slot, sizeof(slot), "_%s", slot_arg);
     } else {
         get_active_slot(slot, sizeof(slot));
     }
 
     static const char *roots[] = {
         "vbmeta",
+/** /
+        "vbmeta_system",
+        "boot", "dtbo", "init_boot", "pvmfw",
+        "qtvm-dtbo", "recovery", "vendor_boot",
+        /**/
         NULL
     };
 
     for (int r = 0; roots[r]; r++) {
+        /* skip this root if already backed up */
         char check_path[MAX_PATH_LEN];
         snprintf(check_path, sizeof(check_path), "%s/%s.vbmeta", output_dir, roots[r]);
         FILE *chk = fopen(check_path, "rb");
@@ -373,6 +389,7 @@ int main(int argc, char **argv) {
         }
 
         printf("\n======== Root: %s ========\n", roots[r]);
+
         size_t part_size;
         uint8_t *part_data = pull_and_read_partition(roots[r], slot, output_dir, &part_size);
         if (!part_data) {
@@ -389,6 +406,7 @@ int main(int argc, char **argv) {
         }
         free(part_data);
 
+        /* BFS from this root */
         struct {
             uint8_t *data;
             size_t len;
@@ -398,8 +416,7 @@ int main(int argc, char **argv) {
 
         queue[q_tail].data = root_vbmeta;
         queue[q_tail].len = root_vbmeta_len;
-        strncpy(queue[q_tail].name, roots[r], MAX_PARTITION_NAME - 1);
-        queue[q_tail].name[MAX_PARTITION_NAME - 1] = '\0';
+        snprintf(queue[q_tail].name, MAX_PARTITION_NAME, "%s", roots[r]);
         q_tail++;
 
         while (q_head < q_tail) {
@@ -428,17 +445,18 @@ int main(int argc, char **argv) {
                                   &chain_vbmeta, &chain_vbmeta_len) == 0 && chain_vbmeta) {
                     queue[q_tail].data = chain_vbmeta;
                     queue[q_tail].len = chain_vbmeta_len;
-                    strncpy(queue[q_tail].name, chains[i].name, MAX_PARTITION_NAME - 1);
-                    queue[q_tail].name[MAX_PARTITION_NAME - 1] = '\0';
+                    snprintf(queue[q_tail].name, MAX_PARTITION_NAME, "%s", chains[i].name);
                     q_tail++;
                 }
                 free(chain_data);
             }
+
             free(cur_data);
             q_head++;
         }
     }
 
     printf("\nBackup complete, files saved to: %s\n", output_dir);
+
     return 0;
 }
