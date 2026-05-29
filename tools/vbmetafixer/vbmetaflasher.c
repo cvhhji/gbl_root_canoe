@@ -234,7 +234,6 @@ static int flash_partition(const char *partition, const char *image_path) {
     return system(cmd);
 }
 
-// 新增：刷写后选择重启目标
 static void select_reboot_target(void) {
     char opt[16];
     char cmd[MAX_CMD_LEN];
@@ -268,24 +267,16 @@ static void select_reboot_target(void) {
             break;
         } else if (strcmp(opt, "1") == 0) {
             snprintf(cmd, sizeof(cmd), "%s reboot recovery", fastboot_path);
-            printf("Execute: %s\n", cmd);
-            system(cmd);
-            break;
+            system(cmd); break;
         } else if (strcmp(opt, "2") == 0) {
             snprintf(cmd, sizeof(cmd), "%s reboot fastboot", fastboot_path);
-            printf("Execute: %s\n", cmd);
-            system(cmd);
-            break;
+            system(cmd); break;
         } else if (strcmp(opt, "3") == 0) {
             snprintf(cmd, sizeof(cmd), "%s reboot bootloader", fastboot_path);
-            printf("Execute: %s\n", cmd);
-            system(cmd);
-            break;
+            system(cmd); break;
         } else if (strcmp(opt, "4") == 0) {
             snprintf(cmd, sizeof(cmd), "%s reboot", fastboot_path);
-            printf("Execute: %s\n", cmd);
-            system(cmd);
-            break;
+            system(cmd); break;
         } else {
             if (is_chinese_locale) printf("输入无效，请重新选择！\n");
             else printf("Invalid input, please try again!\n");
@@ -305,11 +296,11 @@ static int run_backup(const char *exe_dir) {
     char cmd[MAX_CMD_LEN];
 
 #ifdef _WIN32
-    snprintf(backup_bin, sizeof(backup_bin), "%s\\bin\\vbmetabackup.exe", exe_dir);
+    snprintf(backup_bin, sizeof(backup_bin), "%s/bin/vbmetabackup.exe", exe_dir);
 #else
     snprintf(backup_bin, sizeof(backup_bin), "%s/bin/vbmetabackup", exe_dir);
 #endif
-    snprintf(vbmetas_dir, sizeof(vbmetas_dir), "%s%cvbmetas", exe_dir, PATH_SEP);
+    snprintf(vbmetas_dir, sizeof(vbmetas_dir), "%s/vbmetas", exe_dir);
 
     if (!file_exists(backup_bin)) {
         fprintf(stderr, "\n%s: %s\n", is_chinese_locale ? "错误: 备份工具不存在" : "Error: Backup tool not found", backup_bin);
@@ -333,6 +324,9 @@ static int run_backup(const char *exe_dir) {
     }
     fflush(stdout); getchar();
 
+    // ==========================================
+    // 🔥 终极修复：Windows 命令用 / 不用 \
+    // ==========================================
     snprintf(cmd, sizeof(cmd), "\"%s\" -o \"%s\"", backup_bin, vbmetas_dir);
     printf("\nExecute: %s\n", cmd);
 
@@ -347,7 +341,7 @@ static int run_backup(const char *exe_dir) {
 
 static int check_and_run_backup(const char *exe_dir) {
     char marker[MAX_PATH_LEN];
-    snprintf(marker, sizeof(marker), "%s%cfinish_backup", exe_dir, PATH_SEP);
+    snprintf(marker, sizeof(marker), "%s/finish_backup", exe_dir);
     if (file_exists(marker)) return 0;
     if (run_backup(exe_dir) != 0) return -1;
     FILE *f = fopen(marker, "w");
@@ -380,7 +374,7 @@ int main(int argc, char **argv) {
     char temp_dir[MAX_PATH_LEN];
     char choice[32];
 
-    snprintf(temp_dir, sizeof(temp_dir), "%s%ctemp", exe_dir, PATH_SEP);
+    snprintf(temp_dir, sizeof(temp_dir), "%s/temp", exe_dir);
     mkdir_p(temp_dir);
 
     while (1) {
@@ -406,11 +400,9 @@ int main(int argc, char **argv) {
         }
 
         strip_slot_suffix(partition_buf, base_name, sizeof(base_name));
-        snprintf(vbmeta_path, sizeof(vbmeta_path), "%s%cvbmetas%c%s.vbmeta",
-                 exe_dir, PATH_SEP, PATH_SEP, base_name);
+        snprintf(vbmeta_path, sizeof(vbmeta_path), "%s/vbmetas/%s.vbmeta", exe_dir, base_name);
 
-        snprintf(temp_image, sizeof(temp_image), "%s%c%s", temp_dir, PATH_SEP, partition_buf);
-        strncat(temp_image, ".img", sizeof(temp_image) - strlen(temp_image) - 1);
+        snprintf(temp_image, sizeof(temp_image), "%s/temp/%s.img", exe_dir, partition_buf);
 
         printf("\n%s...\n", is_chinese_locale ? "开始修补镜像" : "Patching image");
         if (transplant_vbmeta(vbmeta_path, image_buf, temp_image) != 0) {
@@ -427,7 +419,6 @@ int main(int argc, char **argv) {
         int flash_ret = flash_partition(partition_buf, temp_image);
         if (flash_ret == 0) {
             printf("\n✅ %s\n", is_chinese_locale ? "分区刷写成功！" : "Flash success!");
-            // 刷写成功后弹出重启选择
             select_reboot_target();
         } else {
             fprintf(stderr, "\n❌ %s\n", is_chinese_locale ? "分区刷写失败！请检查连接与分区名称" : "Flash failed! Check connection & partition name");
