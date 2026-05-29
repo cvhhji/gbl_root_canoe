@@ -24,9 +24,9 @@
 #define MAX_INPUT_LEN 256
 
 static const char *fastboot_path = "fastboot";
+static const char *adb_path = "adb";
 
 /* ---- big-endian helpers ---- */
-
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
            ((uint32_t)p[2] << 8)  | (uint32_t)p[3];
@@ -49,7 +49,6 @@ static void put_be64(uint8_t *p, uint64_t v) {
 }
 
 /* ---- file I/O ---- */
-
 static uint8_t *read_file(const char *path, size_t *out_size) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
@@ -59,10 +58,8 @@ static uint8_t *read_file(const char *path, size_t *out_size) {
     fseek(f, 0, SEEK_SET);
 
     if (sz <= 0) { fclose(f); return NULL; }
-
     uint8_t *buf = malloc(sz);
     if (!buf) { fclose(f); return NULL; }
-
     if (fread(buf, 1, sz, f) != (size_t)sz) {
         free(buf);
         fclose(f);
@@ -76,7 +73,6 @@ static uint8_t *read_file(const char *path, size_t *out_size) {
 static int write_file(const char *path, const uint8_t *data, size_t size) {
     FILE *f = fopen(path, "wb");
     if (!f) return -1;
-
     if (fwrite(data, 1, size, f) != size) {
         fclose(f);
         return -1;
@@ -92,10 +88,8 @@ static int file_exists(const char *path) {
 }
 
 /* ---- exe directory resolution ---- */
-
 static int get_exe_dir(char *buf, size_t buf_size) {
 #ifdef _WIN32
-    /* GetModuleFileName */
     extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
     unsigned long len = GetModuleFileNameA(NULL, buf, (unsigned long)buf_size);
     if (len == 0 || len >= buf_size) return -1;
@@ -104,7 +98,6 @@ static int get_exe_dir(char *buf, size_t buf_size) {
     if (len <= 0) return -1;
     buf[len] = '\0';
 #endif
-    /* strip filename, keep directory */
     char *last_sep = strrchr(buf, PATH_SEP);
 #ifdef _WIN32
     if (!last_sep) last_sep = strrchr(buf, '/');
@@ -117,17 +110,14 @@ static int get_exe_dir(char *buf, size_t buf_size) {
 }
 
 /* ---- AVB footer / transplant ---- */
-
 static int read_avb_footer(const uint8_t *data, size_t len,
                            uint64_t *original_size, uint64_t *vbmeta_offset,
                            uint64_t *vbmeta_size) {
     if (len < AVB_FOOTER_SIZE)
         return 0;
-
     const uint8_t *footer = data + len - AVB_FOOTER_SIZE;
     if (memcmp(footer, AVB_FOOTER_MAGIC, 4) != 0)
         return 0;
-
     *original_size = be64(footer + 12);
     *vbmeta_offset = be64(footer + 20);
     *vbmeta_size   = be64(footer + 28);
@@ -154,7 +144,6 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
         fprintf(stderr, "Failed to read vbmeta: %s\n", vbmeta_path);
         return -1;
     }
-
     size_t target_size;
     uint8_t *target_data = read_file(source_image, &target_size);
     if (!target_data) {
@@ -162,7 +151,6 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
         free(vbmeta_data);
         return -1;
     }
-
     uint64_t original_size;
     uint64_t existing_offset, existing_size;
     if (read_avb_footer(target_data, target_size,
@@ -174,11 +162,9 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
         printf("  Target has no VBMeta, calculated original size: %llu\n",
                (unsigned long long)original_size);
     }
-
     uint64_t vbmeta_offset = original_size;
     uint64_t footer_offset = target_size - AVB_FOOTER_SIZE;
     uint64_t required = original_size + vbmeta_size + AVB_FOOTER_SIZE;
-
     if (required > target_size) {
         fprintf(stderr, "Insufficient space: need %llu, have %llu\n",
                 (unsigned long long)required, (unsigned long long)target_size);
@@ -186,28 +172,22 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
         free(target_data);
         return -1;
     }
-
     uint8_t *output = calloc(1, target_size);
     if (!output) {
         free(vbmeta_data);
         free(target_data);
         return -1;
     }
-
     memcpy(output, target_data, (size_t)original_size);
     memcpy(output + vbmeta_offset, vbmeta_data, vbmeta_size);
     create_avb_footer(output + footer_offset, original_size, vbmeta_offset, vbmeta_size);
-
     free(target_data);
     free(vbmeta_data);
-
     if (write_file(output_path, output, target_size) != 0) {
         fprintf(stderr, "Failed to write transplanted image: %s\n", output_path);
         free(output);
         return -1;
     }
-
-    /* verify */
     uint64_t v_orig, v_off, v_sz;
     if (read_avb_footer(output, target_size, &v_orig, &v_off, &v_sz)) {
         if (v_off + v_sz <= target_size &&
@@ -219,16 +199,13 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
             return -1;
         }
     }
-
     free(output);
     return 0;
 }
 
 /* ---- partition name helpers ---- */
-
 static void strip_slot_suffix(const char *partition, char *base, size_t base_size) {
     size_t len = strlen(partition);
-
     if (len > 3 && strcmp(partition + len - 3, "_ab") == 0) {
         snprintf(base, base_size, "%.*s", (int)(len - 3), partition);
     } else if (len > 2 && (strcmp(partition + len - 2, "_a") == 0 ||
@@ -239,8 +216,23 @@ static void strip_slot_suffix(const char *partition, char *base, size_t base_siz
     }
 }
 
-/* ---- backup check ---- */
+/* ---- 自动重启到 Fastboot ---- */
+static int reboot_fastboot(void) {
+    char cmd[MAX_CMD_LEN];
+    printf("\n=== Rebooting device to Fastboot mode ===\n");
+    snprintf(cmd, sizeof(cmd), "%s reboot bootloader", adb_path);
+    printf("Execute: %s\n", cmd);
+    int ret = system(cmd);
+    if (ret != 0) {
+        fprintf(stderr, "\n警告：重启Fastboot失败，请手动进入！\n");
+    } else {
+        printf("设备正在重启，请稍等...\n");
+    }
+    printf("----------------------------------------\n");
+    return ret;
+}
 
+/* ---- backup check ---- */
 static int run_backup(const char *exe_dir) {
     char backup_bin[MAX_PATH_LEN];
     char vbmetas_dir[MAX_PATH_LEN];
@@ -254,7 +246,9 @@ static int run_backup(const char *exe_dir) {
     snprintf(vbmetas_dir, sizeof(vbmetas_dir), "%s%cvbmetas", exe_dir, PATH_SEP);
 
     if (!file_exists(backup_bin)) {
-        fprintf(stderr, "Backup tool not found: %s\n", backup_bin);
+        fprintf(stderr, "\nERROR: Backup tool missing: %s\n", backup_bin);
+        printf("\nPress Enter to exit...");
+        getchar();
         return -1;
     }
 
@@ -269,51 +263,47 @@ static int run_backup(const char *exe_dir) {
     fflush(stdout);
     getchar();
 
-    snprintf(cmd, sizeof(cmd), "\"%s\" -o \"%s\"", backup_bin, vbmetas_dir);
-    printf("\n");
+    snprintf(cmd, sizeof(cmd), "%s -o %s", backup_bin, vbmetas_dir);
+    printf("\nExecute: %s\n", cmd);
+
     int ret = system(cmd);
     if (ret != 0) {
-        fprintf(stderr, "Backup failed (ret=%d)\n", ret);
+        fprintf(stderr, "\nERROR: Backup program execute failed!\n");
+        fprintf(stderr, "Tip: Run bin/vbmetabackup.exe manually first.\n");
+        printf("\nPress Enter to exit...");
+        getchar();
         return -1;
     }
-
     return 0;
 }
 
 static int check_and_run_backup(const char *exe_dir) {
     char marker[MAX_PATH_LEN];
     snprintf(marker, sizeof(marker), "%s%cfinish_backup", exe_dir, PATH_SEP);
-
     if (file_exists(marker))
         return 0;
 
     if (run_backup(exe_dir) != 0)
         return -1;
 
-    /* create marker */
     FILE *f = fopen(marker, "w");
     if (f) {
         fprintf(f, "done\n");
         fclose(f);
     }
-    printf("\nBackup complete. Marker created: %s\n\n", marker);
+    printf("\nBackup complete.\n\n");
     return 0;
 }
 
 /* ---- flash ---- */
-
 static int flash_partition(const char *partition, const char *image_path) {
     char cmd[MAX_CMD_LEN];
     snprintf(cmd, sizeof(cmd), "%s flash %s \"%s\"", fastboot_path, partition, image_path);
     printf("$ %s\n", cmd);
-    int ret = system(cmd);
-    if (ret != 0)
-        fprintf(stderr, "Flash failed (ret=%d)\n", ret);
-    return ret;
+    return system(cmd);
 }
 
 /* ---- input helpers ---- */
-
 static void read_line(const char *prompt, char *buf, size_t size) {
     printf("%s", prompt);
     fflush(stdout);
@@ -322,25 +312,23 @@ static void read_line(const char *prompt, char *buf, size_t size) {
 }
 
 /* ---- main ---- */
-
 static void usage(const char *prog) {
     printf("Usage: %s [-f fastboot_path] [partition] [image]\n\n", prog);
     printf("  partition  fastboot partition name (e.g. boot_a, boot_ab, vbmeta_b)\n");
     printf("  image      path to the image file to flash\n");
     printf("  -f         path to fastboot executable (default: fastboot)\n\n");
-    printf("If partition or image is omitted, you will be prompted interactively.\n");
-    printf("Slot suffixes (_a, _b, _ab) are stripped to find matching vbmeta backup.\n");
 }
 
 int main(int argc, char **argv) {
     char exe_dir[MAX_PATH_LEN];
     if (get_exe_dir(exe_dir, sizeof(exe_dir)) != 0) {
         fprintf(stderr, "Failed to determine executable directory\n");
+        printf("Press Enter to exit...");
+        getchar();
         return 1;
     }
     printf("Working directory: %s\n", exe_dir);
 
-    /* parse args */
     const char *partition_arg = NULL;
     const char *image_arg = NULL;
     int positional = 0;
@@ -364,27 +352,28 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* backup check */
     if (check_and_run_backup(exe_dir) != 0)
         return 1;
 
-    /* get partition */
     char partition_buf[MAX_INPUT_LEN];
     if (!partition_arg) {
         read_line("Partition name (e.g. boot_a, boot_ab): ", partition_buf, sizeof(partition_buf));
         if (partition_buf[0] == '\0') {
             fprintf(stderr, "No partition specified\n");
+            printf("Press Enter to exit...");
+            getchar();
             return 1;
         }
         partition_arg = partition_buf;
     }
 
-    /* get image path */
     char image_buf[MAX_PATH_LEN];
     if (!image_arg) {
         read_line("Image file path: ", image_buf, sizeof(image_buf));
         if (image_buf[0] == '\0') {
             fprintf(stderr, "No image specified\n");
+            printf("Press Enter to exit...");
+            getchar();
             return 1;
         }
         image_arg = image_buf;
@@ -392,15 +381,15 @@ int main(int argc, char **argv) {
 
     if (!file_exists(image_arg)) {
         fprintf(stderr, "Image file not found: %s\n", image_arg);
+        printf("Press Enter to exit...");
+        getchar();
         return 1;
     }
 
-    /* derive base partition name */
     char base_name[MAX_INPUT_LEN];
     strip_slot_suffix(partition_arg, base_name, sizeof(base_name));
     printf("Partition: %s (base: %s)\n", partition_arg, base_name);
 
-    /* check for vbmeta backup */
     char vbmeta_path[MAX_PATH_LEN];
     snprintf(vbmeta_path, sizeof(vbmeta_path), "%s%cvbmetas%c%s.vbmeta",
              exe_dir, PATH_SEP, PATH_SEP, base_name);
@@ -422,25 +411,35 @@ int main(int argc, char **argv) {
         if (transplant_vbmeta(vbmeta_path, image_arg, temp_image) != 0) {
             fprintf(stderr, "VBMeta transplant failed, aborting\n");
             remove(temp_image);
+            printf("Press Enter to exit...");
+            getchar();
             return 1;
         }
-
         printf("VBMeta transplanted -> %s\n", temp_image);
         flash_image = temp_image;
     } else {
         printf("No vbmeta backup for '%s', flashing original image\n", base_name);
     }
 
-    /* flash */
-    printf("\nFlashing %s -> %s\n", flash_image, partition_arg);
+    // 新增：自动重启到 Fastboot
+    reboot_fastboot();
+
+    printf("\nStart flashing: %s -> %s\n", flash_image, partition_arg);
     int ret = flash_partition(partition_arg, flash_image);
 
-    /* cleanup temp */
     if (temp_image[0])
         remove(temp_image);
 
-    if (ret == 0)
-        printf("\nFlash complete!\n");
+    // 完善刷写结果提示
+    printf("\n========================================");
+    if (ret == 0) {
+        printf("\n✅ 刷写完成！");
+    } else {
+        printf("\n❌ 刷写失败，请检查设备连接与分区名称！");
+    }
+    printf("\n========================================\n");
 
+    printf("\nPress Enter to exit...");
+    getchar();
     return ret;
 }
