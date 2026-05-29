@@ -26,7 +26,7 @@
 static const char *fastboot_path = "fastboot";
 static const char *adb_path = "adb";
 
-/* ---- big-endian helpers ---- */
+/* ---- 大小端转换 ---- */
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
            ((uint32_t)p[2] << 8)  | (uint32_t)p[3];
@@ -48,7 +48,7 @@ static void put_be64(uint8_t *p, uint64_t v) {
     put_be32(p + 4, (uint32_t)v);
 }
 
-/* ---- file I/O ---- */
+/* ---- 文件读写 ---- */
 static uint8_t *read_file(const char *path, size_t *out_size) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
@@ -87,7 +87,7 @@ static int file_exists(const char *path) {
     return 0;
 }
 
-/* ---- exe directory resolution ---- */
+/* ---- 获取程序所在目录 ---- */
 static int get_exe_dir(char *buf, size_t buf_size) {
 #ifdef _WIN32
     extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
@@ -109,7 +109,7 @@ static int get_exe_dir(char *buf, size_t buf_size) {
     return 0;
 }
 
-/* ---- AVB footer / transplant ---- */
+/* ---- AVB Footer 操作 ---- */
 static int read_avb_footer(const uint8_t *data, size_t len,
                            uint64_t *original_size, uint64_t *vbmeta_offset,
                            uint64_t *vbmeta_size) {
@@ -141,13 +141,13 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
     size_t vbmeta_size;
     uint8_t *vbmeta_data = read_file(vbmeta_path, &vbmeta_size);
     if (!vbmeta_data) {
-        fprintf(stderr, "Failed to read vbmeta: %s\n", vbmeta_path);
+        fprintf(stderr, "读取VBMeta失败: %s\n", vbmeta_path);
         return -1;
     }
     size_t target_size;
     uint8_t *target_data = read_file(source_image, &target_size);
     if (!target_data) {
-        fprintf(stderr, "Failed to read source image: %s\n", source_image);
+        fprintf(stderr, "读取镜像失败: %s\n", source_image);
         free(vbmeta_data);
         return -1;
     }
@@ -155,18 +155,18 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
     uint64_t existing_offset, existing_size;
     if (read_avb_footer(target_data, target_size,
                         &original_size, &existing_offset, &existing_size)) {
-        printf("  Target has existing VBMeta, original data size: %llu\n",
+        printf("  检测到已有AVB Footer，原始数据大小: %llu\n",
                (unsigned long long)original_size);
     } else {
         original_size = target_size - vbmeta_size - AVB_FOOTER_SIZE;
-        printf("  Target has no VBMeta, calculated original size: %llu\n",
+        printf("  无AVB Footer，计算原始数据大小: %llu\n",
                (unsigned long long)original_size);
     }
     uint64_t vbmeta_offset = original_size;
     uint64_t footer_offset = target_size - AVB_FOOTER_SIZE;
     uint64_t required = original_size + vbmeta_size + AVB_FOOTER_SIZE;
     if (required > target_size) {
-        fprintf(stderr, "Insufficient space: need %llu, have %llu\n",
+        fprintf(stderr, "空间不足: 需要 %llu 字节，当前 %llu 字节\n",
                 (unsigned long long)required, (unsigned long long)target_size);
         free(vbmeta_data);
         free(target_data);
@@ -184,26 +184,23 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
     free(target_data);
     free(vbmeta_data);
     if (write_file(output_path, output, target_size) != 0) {
-        fprintf(stderr, "Failed to write transplanted image: %s\n", output_path);
+        fprintf(stderr, "写入修补镜像失败: %s\n", output_path);
         free(output);
         return -1;
     }
     uint64_t v_orig, v_off, v_sz;
     if (read_avb_footer(output, target_size, &v_orig, &v_off, &v_sz)) {
-        if (v_off + v_sz <= target_size &&
-            memcmp(output + v_off, AVB_MAGIC, 4) == 0) {
-            printf("  VBMeta transplant verified OK\n");
-        } else {
-            fprintf(stderr, "  VBMeta transplant verification failed\n");
+        if (v_off + v_sz <= target_size && memcmp(output + v_off, AVB_MAGIC, 4) == 0) {
             free(output);
-            return -1;
+            return 0;
         }
     }
     free(output);
-    return 0;
+    fprintf(stderr, "VBMeta校验失败\n");
+    return -1;
 }
 
-/* ---- partition name helpers ---- */
+/* ---- 去除分区槽位后缀 _a/_b/_ab ---- */
 static void strip_slot_suffix(const char *partition, char *base, size_t base_size) {
     size_t len = strlen(partition);
     if (len > 3 && strcmp(partition + len - 3, "_ab") == 0) {
@@ -216,23 +213,37 @@ static void strip_slot_suffix(const char *partition, char *base, size_t base_siz
     }
 }
 
-/* ---- 自动重启到 Fastboot ---- */
+/* ---- 重启到 Fastboot ---- */
 static int reboot_fastboot(void) {
     char cmd[MAX_CMD_LEN];
-    printf("\n=== Rebooting device to Fastboot mode ===\n");
+    printf("\n>>> 正在重启设备进入 Fastboot 模式...\n");
     snprintf(cmd, sizeof(cmd), "%s reboot bootloader", adb_path);
-    printf("Execute: %s\n", cmd);
+    printf("执行命令: %s\n", cmd);
     int ret = system(cmd);
     if (ret != 0) {
-        fprintf(stderr, "\n警告：重启Fastboot失败，请手动进入！\n");
-    } else {
-        printf("设备正在重启，请稍等...\n");
+        fprintf(stderr, "⚠️  自动进入Fastboot失败，请手动进入！\n");
     }
-    printf("----------------------------------------\n");
     return ret;
 }
 
-/* ---- backup check ---- */
+/* ---- 刷写分区 ---- */
+static int flash_partition(const char *partition, const char *image_path) {
+    char cmd[MAX_CMD_LEN];
+    printf("\n>>> 开始刷写分区 %s ...\n", partition);
+    snprintf(cmd, sizeof(cmd), "%s flash %s \"%s\"", fastboot_path, partition, image_path);
+    printf("执行命令: %s\n", cmd);
+    return system(cmd);
+}
+
+/* ---- 读取一行输入 ---- */
+static void read_line(const char *prompt, char *buf, size_t size) {
+    printf("%s", prompt);
+    fflush(stdout);
+    if (fgets(buf, (int)size, stdin))
+        buf[strcspn(buf, "\r\n")] = '\0';
+}
+
+/* ---- 备份检测与执行 ---- */
 static int run_backup(const char *exe_dir) {
     char backup_bin[MAX_PATH_LEN];
     char vbmetas_dir[MAX_PATH_LEN];
@@ -246,31 +257,29 @@ static int run_backup(const char *exe_dir) {
     snprintf(vbmetas_dir, sizeof(vbmetas_dir), "%s%cvbmetas", exe_dir, PATH_SEP);
 
     if (!file_exists(backup_bin)) {
-        fprintf(stderr, "\nERROR: Backup tool missing: %s\n", backup_bin);
-        printf("\nPress Enter to exit...");
+        fprintf(stderr, "\nERROR: 备份工具不存在: %s\n", backup_bin);
+        printf("按回车退出...");
         getchar();
         return -1;
     }
 
     printf("==========================================================\n");
-    printf("No backup found. VBMeta backup is required before flashing.\n");
+    printf("未检测到VBMeta备份，必须先完成备份才能继续！\n");
     printf("==========================================================\n\n");
-    printf("Please:\n");
-    printf("  1. Reboot device to Android\n");
-    printf("  2. Connect via USB\n");
-    printf("  3. Grant root access to ADB shell\n\n");
-    printf("Press Enter to start backup...");
+    printf("请确保：\n");
+    printf("  1. 设备正常进入安卓系统\n");
+    printf("  2. USB已连接、开启USB调试并拥有ROOT权限\n\n");
+    printf("按回车开始备份...");
     fflush(stdout);
     getchar();
 
     snprintf(cmd, sizeof(cmd), "%s -o %s", backup_bin, vbmetas_dir);
-    printf("\nExecute: %s\n", cmd);
+    printf("\n执行: %s\n", cmd);
 
     int ret = system(cmd);
     if (ret != 0) {
-        fprintf(stderr, "\nERROR: Backup program execute failed!\n");
-        fprintf(stderr, "Tip: Run bin/vbmetabackup.exe manually first.\n");
-        printf("\nPress Enter to exit...");
+        fprintf(stderr, "\nERROR: 备份执行失败！\n");
+        printf("按回车退出...");
         getchar();
         return -1;
     }
@@ -291,155 +300,108 @@ static int check_and_run_backup(const char *exe_dir) {
         fprintf(f, "done\n");
         fclose(f);
     }
-    printf("\nBackup complete.\n\n");
+    printf("\n✅ 备份完成！\n\n");
     return 0;
-}
-
-/* ---- flash ---- */
-static int flash_partition(const char *partition, const char *image_path) {
-    char cmd[MAX_CMD_LEN];
-    snprintf(cmd, sizeof(cmd), "%s flash %s \"%s\"", fastboot_path, partition, image_path);
-    printf("$ %s\n", cmd);
-    return system(cmd);
-}
-
-/* ---- input helpers ---- */
-static void read_line(const char *prompt, char *buf, size_t size) {
-    printf("%s", prompt);
-    fflush(stdout);
-    if (fgets(buf, (int)size, stdin))
-        buf[strcspn(buf, "\r\n")] = '\0';
-}
-
-/* ---- main ---- */
-static void usage(const char *prog) {
-    printf("Usage: %s [-f fastboot_path] [partition] [image]\n\n", prog);
-    printf("  partition  fastboot partition name (e.g. boot_a, boot_ab, vbmeta_b)\n");
-    printf("  image      path to the image file to flash\n");
-    printf("  -f         path to fastboot executable (default: fastboot)\n\n");
 }
 
 int main(int argc, char **argv) {
     char exe_dir[MAX_PATH_LEN];
     if (get_exe_dir(exe_dir, sizeof(exe_dir)) != 0) {
-        fprintf(stderr, "Failed to determine executable directory\n");
-        printf("Press Enter to exit...");
+        fprintf(stderr, "获取程序目录失败\n");
+        printf("按回车退出...");
         getchar();
         return 1;
     }
-    printf("Working directory: %s\n", exe_dir);
+    printf("程序运行目录: %s\n\n", exe_dir);
 
-    const char *partition_arg = NULL;
-    const char *image_arg = NULL;
-    int positional = 0;
-
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
-            fastboot_path = argv[++i];
-        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            usage(argv[0]);
-            return 0;
-        } else {
-            if (positional == 0)
-                partition_arg = argv[i];
-            else if (positional == 1)
-                image_arg = argv[i];
-            else {
-                usage(argv[0]);
-                return 1;
-            }
-            positional++;
-        }
-    }
-
+    // 首次运行先检查并执行备份
     if (check_and_run_backup(exe_dir) != 0)
         return 1;
 
     char partition_buf[MAX_INPUT_LEN];
-    if (!partition_arg) {
-        read_line("Partition name (e.g. boot_a, boot_ab): ", partition_buf, sizeof(partition_buf));
-        if (partition_buf[0] == '\0') {
-            fprintf(stderr, "No partition specified\n");
-            printf("Press Enter to exit...");
-            getchar();
-            return 1;
-        }
-        partition_arg = partition_buf;
-    }
-
     char image_buf[MAX_PATH_LEN];
-    if (!image_arg) {
-        read_line("Image file path: ", image_buf, sizeof(image_buf));
-        if (image_buf[0] == '\0') {
-            fprintf(stderr, "No image specified\n");
-            printf("Press Enter to exit...");
-            getchar();
-            return 1;
-        }
-        image_arg = image_buf;
-    }
-
-    if (!file_exists(image_arg)) {
-        fprintf(stderr, "Image file not found: %s\n", image_arg);
-        printf("Press Enter to exit...");
-        getchar();
-        return 1;
-    }
-
-    char base_name[MAX_INPUT_LEN];
-    strip_slot_suffix(partition_arg, base_name, sizeof(base_name));
-    printf("Partition: %s (base: %s)\n", partition_arg, base_name);
-
+    char temp_image[MAX_PATH_LEN];
     char vbmeta_path[MAX_PATH_LEN];
-    snprintf(vbmeta_path, sizeof(vbmeta_path), "%s%cvbmetas%c%s.vbmeta",
-             exe_dir, PATH_SEP, PATH_SEP, base_name);
+    char base_name[MAX_INPUT_LEN];
+    char temp_dir[MAX_PATH_LEN];
+    char choice[32];
 
-    const char *flash_image = image_arg;
-    char temp_image[MAX_PATH_LEN] = {0};
+    // 创建临时目录
+    snprintf(temp_dir, sizeof(temp_dir), "%s%ctemp", exe_dir, PATH_SEP);
+    mkdir_p(temp_dir);
 
-    if (file_exists(vbmeta_path)) {
-        printf("Found vbmeta backup: %s\n", vbmeta_path);
-        printf("Transplanting vbmeta...\n");
+    // 循环修补+刷写
+    while (1) {
+        printf("==================== 新任务 ====================\n");
 
-        char temp_dir[MAX_PATH_LEN];
-        snprintf(temp_dir, sizeof(temp_dir), "%s%ctemp", exe_dir, PATH_SEP);
-        mkdir_p(temp_dir);
-
-        snprintf(temp_image, sizeof(temp_image), "%s%c%s.img",
-                 temp_dir, PATH_SEP, partition_arg);
-
-        if (transplant_vbmeta(vbmeta_path, image_arg, temp_image) != 0) {
-            fprintf(stderr, "VBMeta transplant failed, aborting\n");
-            remove(temp_image);
-            printf("Press Enter to exit...");
-            getchar();
-            return 1;
+        // 1. 输入分区名
+        read_line("请输入Fastboot分区名(如 boot_a / vbmeta_b): ", partition_buf, sizeof(partition_buf));
+        if (partition_buf[0] == '\0') {
+            printf("分区名为空，退出程序\n");
+            break;
         }
-        printf("VBMeta transplanted -> %s\n", temp_image);
-        flash_image = temp_image;
-    } else {
-        printf("No vbmeta backup for '%s', flashing original image\n", base_name);
-    }
 
-    // 新增：自动重启到 Fastboot
-    reboot_fastboot();
+        // 2. 输入镜像路径
+        read_line("请输入待修补镜像完整路径: ", image_buf, sizeof(image_buf));
+        if (image_buf[0] == '\0') {
+            printf("镜像路径为空，退出程序\n");
+            break;
+        }
+        if (!file_exists(image_buf)) {
+            fprintf(stderr, "错误: 镜像文件不存在！\n");
+            printf("-----------------------------------------------\n");
+            continue;
+        }
 
-    printf("\nStart flashing: %s -> %s\n", flash_image, partition_arg);
-    int ret = flash_partition(partition_arg, flash_image);
+        // 3. 匹配对应VBMeta备份
+        strip_slot_suffix(partition_buf, base_name, sizeof(base_name));
+        snprintf(vbmeta_path, sizeof(vbmeta_path), "%s%cvbmetas%c%s.vbmeta",
+                 exe_dir, PATH_SEP, PATH_SEP, base_name);
 
-    if (temp_image[0])
+        // 临时输出镜像名
+        snprintf(temp_image, sizeof(temp_image), "%s%c%s.img",
+                 temp_dir, PATH_SEP, partition_buf);
+
+        // 4. 执行VBMeta修补
+        printf("\n开始修补镜像...\n");
+        if (transplant_vbmeta(vbmeta_path, image_buf, temp_image) != 0) {
+            fprintf(stderr, "❌ 镜像修补失败！\n");
+            printf("-----------------------------------------------\n");
+            continue;
+        }
+        printf("✅ 镜像修补完成: %s\n", temp_image);
+
+        // 5. 按回车进入Fastboot
+        printf("\n按回车键，设备将重启进入 Fastboot...");
+        fflush(stdout);
+        getchar();
+        reboot_fastboot();
+
+        // 6. 执行刷写
+        int flash_ret = flash_partition(partition_buf, temp_image);
+        if (flash_ret == 0) {
+            printf("\n✅ 分区刷写成功！\n");
+        } else {
+            fprintf(stderr, "\n❌ 分区刷写失败！请检查连接与分区名称\n");
+        }
+
+        // 清理临时文件
         remove(temp_image);
 
-    // 完善刷写结果提示
-    printf("\n========================================");
-    if (ret == 0) {
-        printf("\n✅ 刷写完成！");
-    } else {
-        printf("\n❌ 刷写失败，请检查设备连接与分区名称！");
-    }
-    printf("\n========================================\n");
+        // 7. 询问是否继续
+        printf("\n-----------------------------------------------\n");
+        read_line("是否继续修补/刷写？(y/n): ", choice, sizeof(choice));
+        printf("-----------------------------------------------\n");
 
-    printf("\nPress Enter to exit...");
+        // 判断退出/继续
+        if (strcmp(choice, "n") == 0 || strcmp(choice, "N") == 0 ||
+            strcmp(choice, "no") == 0 || strcmp(choice, "NO") == 0) {
+            printf("已选择退出，程序结束\n");
+            break;
+        }
+    }
+
+    printf("\n按回车键关闭窗口...");
     getchar();
-    return ret;
+    return 0;
 }
