@@ -4,7 +4,6 @@
 #include <string.h>
 
 #ifdef _WIN32
-#include <windows.h>
 #include <direct.h>
 #define mkdir_p(d) _mkdir(d)
 #define PATH_SEP '\\'
@@ -27,13 +26,7 @@
 static const char *fastboot_path = "fastboot";
 static const char *adb_path = "adb";
 
-#ifdef _WIN32
-static void set_console_utf8(void) {
-    SetConsoleOutputCP(65001);
-    SetConsoleCP(65001);
-}
-#endif
-
+/* ---- 大小端转换 ---- */
 static uint32_t be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
            ((uint32_t)p[2] << 8)  | (uint32_t)p[3];
@@ -55,6 +48,7 @@ static void put_be64(uint8_t *p, uint64_t v) {
     put_be32(p + 4, (uint32_t)v);
 }
 
+/* ---- 文件读写 ---- */
 static uint8_t *read_file(const char *path, size_t *out_size) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
@@ -93,6 +87,7 @@ static int file_exists(const char *path) {
     return 0;
 }
 
+/* ---- 获取程序所在目录 ---- */
 static int get_exe_dir(char *buf, size_t buf_size) {
 #ifdef _WIN32
     extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
@@ -114,6 +109,7 @@ static int get_exe_dir(char *buf, size_t buf_size) {
     return 0;
 }
 
+/* ---- AVB Footer 操作 ---- */
 static int read_avb_footer(const uint8_t *data, size_t len,
                            uint64_t *original_size, uint64_t *vbmeta_offset,
                            uint64_t *vbmeta_size) {
@@ -204,6 +200,7 @@ static int transplant_vbmeta(const char *vbmeta_path, const char *source_image,
     return -1;
 }
 
+/* ---- 去除分区槽位后缀 _a/_b/_ab ---- */
 static void strip_slot_suffix(const char *partition, char *base, size_t base_size) {
     size_t len = strlen(partition);
     if (len > 3 && strcmp(partition + len - 3, "_ab") == 0) {
@@ -216,6 +213,7 @@ static void strip_slot_suffix(const char *partition, char *base, size_t base_siz
     }
 }
 
+/* ---- 重启到 Fastboot ---- */
 static int reboot_fastboot(void) {
     char cmd[MAX_CMD_LEN];
     printf("\n>>> 正在重启设备进入 Fastboot 模式...\n");
@@ -228,6 +226,7 @@ static int reboot_fastboot(void) {
     return ret;
 }
 
+/* ---- 刷写分区 ---- */
 static int flash_partition(const char *partition, const char *image_path) {
     char cmd[MAX_CMD_LEN];
     printf("\n>>> 开始刷写分区 %s ...\n", partition);
@@ -236,6 +235,7 @@ static int flash_partition(const char *partition, const char *image_path) {
     return system(cmd);
 }
 
+/* ---- 读取一行输入 ---- */
 static void read_line(const char *prompt, char *buf, size_t size) {
     printf("%s", prompt);
     fflush(stdout);
@@ -243,6 +243,7 @@ static void read_line(const char *prompt, char *buf, size_t size) {
         buf[strcspn(buf, "\r\n")] = '\0';
 }
 
+/* ---- 备份检测与执行 ---- */
 static int run_backup(const char *exe_dir) {
     char backup_bin[MAX_PATH_LEN];
     char vbmetas_dir[MAX_PATH_LEN];
@@ -304,10 +305,6 @@ static int check_and_run_backup(const char *exe_dir) {
 }
 
 int main(int argc, char **argv) {
-#ifdef _WIN32
-    set_console_utf8();
-#endif
-
     char exe_dir[MAX_PATH_LEN];
     if (get_exe_dir(exe_dir, sizeof(exe_dir)) != 0) {
         fprintf(stderr, "获取程序目录失败\n");
@@ -317,6 +314,7 @@ int main(int argc, char **argv) {
     }
     printf("程序运行目录: %s\n\n", exe_dir);
 
+    // 首次运行先检查并执行备份
     if (check_and_run_backup(exe_dir) != 0)
         return 1;
 
@@ -328,18 +326,22 @@ int main(int argc, char **argv) {
     char temp_dir[MAX_PATH_LEN];
     char choice[32];
 
+    // 创建临时目录
     snprintf(temp_dir, sizeof(temp_dir), "%s%ctemp", exe_dir, PATH_SEP);
     mkdir_p(temp_dir);
 
+    // 循环修补+刷写
     while (1) {
         printf("==================== 新任务 ====================\n");
 
+        // 1. 输入分区名
         read_line("请输入Fastboot分区名(如 boot_a / vbmeta_b): ", partition_buf, sizeof(partition_buf));
         if (partition_buf[0] == '\0') {
             printf("分区名为空，退出程序\n");
             break;
         }
 
+        // 2. 输入镜像路径
         read_line("请输入待修补镜像完整路径: ", image_buf, sizeof(image_buf));
         if (image_buf[0] == '\0') {
             printf("镜像路径为空，退出程序\n");
@@ -351,13 +353,16 @@ int main(int argc, char **argv) {
             continue;
         }
 
+        // 3. 匹配对应VBMeta备份
         strip_slot_suffix(partition_buf, base_name, sizeof(base_name));
         snprintf(vbmeta_path, sizeof(vbmeta_path), "%s%cvbmetas%c%s.vbmeta",
                  exe_dir, PATH_SEP, PATH_SEP, base_name);
 
+        // 临时输出镜像名
         snprintf(temp_image, sizeof(temp_image), "%s%c%s.img",
                  temp_dir, PATH_SEP, partition_buf);
 
+        // 4. 执行VBMeta修补
         printf("\n开始修补镜像...\n");
         if (transplant_vbmeta(vbmeta_path, image_buf, temp_image) != 0) {
             fprintf(stderr, "❌ 镜像修补失败！\n");
@@ -366,11 +371,13 @@ int main(int argc, char **argv) {
         }
         printf("✅ 镜像修补完成: %s\n", temp_image);
 
+        // 5. 按回车进入Fastboot
         printf("\n按回车键，设备将重启进入 Fastboot...");
         fflush(stdout);
         getchar();
         reboot_fastboot();
 
+        // 6. 执行刷写
         int flash_ret = flash_partition(partition_buf, temp_image);
         if (flash_ret == 0) {
             printf("\n✅ 分区刷写成功！\n");
@@ -378,12 +385,15 @@ int main(int argc, char **argv) {
             fprintf(stderr, "\n❌ 分区刷写失败！请检查连接与分区名称\n");
         }
 
+        // 清理临时文件
         remove(temp_image);
 
+        // 7. 询问是否继续
         printf("\n-----------------------------------------------\n");
         read_line("是否继续修补/刷写？(y/n): ", choice, sizeof(choice));
         printf("-----------------------------------------------\n");
 
+        // 判断退出/继续
         if (strcmp(choice, "n") == 0 || strcmp(choice, "N") == 0 ||
             strcmp(choice, "no") == 0 || strcmp(choice, "NO") == 0) {
             printf("已选择退出，程序结束\n");
