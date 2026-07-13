@@ -161,7 +161,7 @@ if [ "$EXTRA_PATCH_MODE" = "vendor_boot" ]; then
   ui_print "$T_OPT_FINISH_VB"
 elif [ "$EXTRA_PATCH_MODE" = "super" ]; then
   ui_print "$T_OPT_RUN_SUPER"
-  [ -f "$MODPATH/patch_super_boot.sh" ] && sh "$MODPATH/patch_super_boot.sh"
+  [ -f "$MODPATH/patch_super.sh" ] && sh "$MODPATH/patch_super.sh"
   ui_print "$T_OPT_FINISH_SUPER"
   ui_print "$T_OPT_SUPER_NOTE"
 fi
