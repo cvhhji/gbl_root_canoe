@@ -38,6 +38,37 @@ else
 fi
 
 if [ "$LANG" = "zh" ]; then
+  T_OPT_MENU="====================================="
+  T_OPT_ASK="是否启用额外修补功能(vendor_boot/super)?"
+  T_OPT_UP_YES="音量上 = 启用修补"
+  T_OPT_DOWN_SKIP="音量下 = 跳过修补"
+  T_OPT_CHOICE1="请选择修补类型"
+  T_OPT_VB="音量上：仅修补 vendor_boot"
+  T_OPT_SUPER="音量下：移除super分区验证"
+  T_OPT_RUN_VB="- 开始执行 vendor_boot 修补脚本..."
+  T_OPT_RUN_SUPER="- 开始执行移除super验证脚本..."
+  T_OPT_FINISH_VB="vendor_boot修补执行完成"
+  T_OPT_FINISH_SUPER="super验证移除执行完成！"
+  T_OPT_SUPER_NOTE="【重要提示】移除super验证已内置vendor_boot修补；操作后请勿修改 system、system_dlkm、vendor 分区！"
+  T_OPT_SKIP="已跳过额外修补步骤"
+else
+  T_OPT_MENU="====================================="
+  T_OPT_ASK="Enable extra patch functions?"
+  T_OPT_UP_YES="Vol+ = Enable patches"
+  T_OPT_DOWN_SKIP="Vol- = Skip patches"
+  T_OPT_CHOICE1="Select patch mode"
+  T_OPT_VB="Vol+ : Patch vendor_boot only"
+  T_OPT_SUPER="Vol- : Remove super partition verification"
+  T_OPT_RUN_VB="- Running vendor_boot patch script..."
+  T_OPT_RUN_SUPER="- Running super verification remove script..."
+  T_OPT_FINISH_VB="vendor_boot patch finished"
+  T_OPT_FINISH_SUPER="Super verification removal finished!"
+  T_OPT_SUPER_NOTE="【WARNING】Super patch includes vendor_boot patch. DO NOT modify system,system_dlkm,vendor partitions afterward!"
+  T_OPT_SKIP="Extra patch skipped"
+fi
+# ==========================================================================
+
+if [ "$LANG" = "zh" ]; then
   T_VERIFY="- 正在验证设备型号"
   T_DEVICE_OK="- 设备验证完成："
   T_PERM="- 正在设置权限"
@@ -93,6 +124,48 @@ set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644
 set_perm "$MODPATH/module.prop" 0 0 0644
 set_perm "$MODPATH/customize.sh" 0 0 0755
 
+ui_print ""
+ui_print "$T_OPT_MENU"
+ui_print "$T_OPT_ASK"
+ui_print "$T_OPT_UP_YES"
+ui_print "$T_OPT_DOWN_SKIP"
+
+EXTRA_PATCH_MODE=""
+while true; do
+  keyevent=$(timeout 0.5 getevent -l 2>/dev/null)
+  if echo "$keyevent" | grep -q "KEY_VOLUMEUP"; then
+    ui_print "$T_OPT_CHOICE1"
+    ui_print "$T_OPT_VB"
+    ui_print "$T_OPT_SUPER"
+    while true; do
+      keyevent2=$(timeout 0.5 getevent -l 2>/dev/null)
+      if echo "$keyevent2" | grep -q "KEY_VOLUMEUP"; then
+        EXTRA_PATCH_MODE="vendor_boot"
+        break
+      elif echo "$keyevent2" | grep -q "KEY_VOLUMEDOWN"; then
+        EXTRA_PATCH_MODE="super"
+        break
+      fi
+    done
+    break
+  elif echo "$keyevent" | grep -q "KEY_VOLUMEDOWN"; then
+    EXTRA_PATCH_MODE="skip"
+    ui_print "$T_OPT_SKIP"
+    break
+  fi
+done
+
+if [ "$EXTRA_PATCH_MODE" = "vendor_boot" ]; then
+  ui_print "$T_OPT_RUN_VB"
+  [ -f "$MODPATH/patch_vendor_boot.sh" ] && sh "$MODPATH/patch_vendor_boot.sh"
+  ui_print "$T_OPT_FINISH_VB"
+elif [ "$EXTRA_PATCH_MODE" = "super" ]; then
+  ui_print "$T_OPT_RUN_SUPER"
+  [ -f "$MODPATH/patch_super_boot.sh" ] && sh "$MODPATH/patch_super_boot.sh"
+  ui_print "$T_OPT_FINISH_SUPER"
+  ui_print "$T_OPT_SUPER_NOTE"
+fi
+
 detect_current_slot() {
   case "$(getprop ro.boot.slot_suffix 2>/dev/null)" in
     _a) echo _a ;;
@@ -105,6 +178,7 @@ BY_NAME_DIR=/dev/block/by-name
 RUNTIME_DIR=$MODPATH/tmp
 mkdir -p $RUNTIME_DIR
 
+ui_print ""
 ui_print "$T_EFISP_TITLE"
 ui_print "$T_SOC"
 ui_print "$T_CHECK_EXP"
