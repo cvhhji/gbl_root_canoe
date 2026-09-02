@@ -192,7 +192,6 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
   /* SilentMode Boot */
   /* MultiSlot Boot */
   /* Flashless Boot */
-  EFI_MEM_CARDINFO_PROTOCOL *CardInfo = NULL;
   /* set ROT, BootState and VBH only once per boot*/
 
   /* RED = entry point reached */
@@ -210,11 +209,6 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
             Status));
     goto stack_guard_update_default;
   }
-
-
-  /* Check if memory card is present; goto flashless if not */
-  Status = gBS->LocateProtocol (&gEfiMemCardInfoProtocolGuid, NULL,
-                                  (VOID **)&CardInfo);
 
   Status = EnumeratePartitions ();
 

@@ -148,7 +148,7 @@ table in the respective position mentioned below.
 #define PART_ATT_UNBOOTABLE_VAL ((UINT64)0x1 << PART_ATT_UNBOOTABLE_BIT)
 #define MAX_PRIORITY 3
 #define MAX_RETRY_COUNT 7
-#define MAX_NUM_PARTITIONS 128
+#define MAX_NUM_PARTITIONS 256
 #define MIN_PARTITION_ARRAY_SIZE 0x4000
 #define ATTRIBUTE_FLAG_OFFSET 48
 #define INVALID_PTN -1

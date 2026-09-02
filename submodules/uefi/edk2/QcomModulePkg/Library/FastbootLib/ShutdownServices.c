@@ -64,6 +64,56 @@
 #include <Library/SerialPortLib.h>
 #include <Library/TimerLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
+#include <Protocol/EFIDisplayPwr.h>
+
+STATIC
+EFI_STATUS
+ClearResetReason ()
+{
+  EFI_RESETREASON_PROTOCOL *RstReasonIf;
+  EFI_STATUS Status = gBS->LocateProtocol (&gEfiResetReasonProtocolGuid, NULL,
+                                           (VOID **)&RstReasonIf);
+  if (Status != EFI_SUCCESS) {
+    DEBUG ((EFI_D_ERROR, "Error locating the reset reason protocol\n"));
+    return Status;
+  }
+
+  if (RstReasonIf->Revision >= EFI_RESETREASON_PROTOCOL_REVISION)
+    RstReasonIf->ClearResetReason (RstReasonIf);
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+DisplayTurnOff(VOID)
+{
+  EFI_DISPLAY_POWER_PROTOCOL* DisplayPower = NULL;
+  EFI_GUID Guid = {0x7BFA4293, 0x7AA4, 0x4375, {0xB6, 0x3C, 0xB6, 0xAA, 0xB7, 0x86, 0xC4, 0x3C}};
+
+  EFI_STATUS Status = gBS->LocateProtocol(
+    &Guid,
+    NULL,
+    (VOID**)&DisplayPower
+  );
+
+  if (EFI_ERROR(Status) || DisplayPower == NULL) {
+    DEBUG((DEBUG_WARN,
+      "DisplayTurnOff: LocateProtocol failed: %r\n", Status));
+    return EFI_NOT_READY;
+  }
+
+  Status = DisplayPower->SetDisplayPowerState(0, 0);
+
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR,
+      "DisplayTurnOff: SetDisplayPowerState failed: %r\n", Status));
+    return Status;
+  }
+
+  DEBUG((DEBUG_INFO, "DisplayTurnOff: done\n"));
+
+  return EFI_SUCCESS;
+}
 
 VOID
 RebootDevice (UINT8 RebootReason)
@@ -72,6 +122,7 @@ RebootDevice (UINT8 RebootReason)
   EFI_STATUS Status = EFI_INVALID_PARAMETER;
 
   WaitForFlashFinished ();
+  DisplayTurnOff();
 
   StrnCpyS (ResetData.DataBuffer, ARRAY_SIZE (ResetData.DataBuffer),
             (CONST CHAR16 *)STR_RESET_PARAM, ARRAY_SIZE (STR_RESET_PARAM) - 1);
@@ -93,6 +144,8 @@ VOID ShutdownDevice (VOID)
   EFI_STATUS Status = EFI_INVALID_PARAMETER;
 
   WaitForFlashFinished ();
+  ClearResetReason ();
+  DisplayTurnOff();
 
   gRT->ResetSystem (EfiResetShutdown, Status, 0, NULL);
 
