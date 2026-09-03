@@ -177,9 +177,9 @@ static bool copy_file(const char *src, const char *dst, bool flush = false) {
             break;
         }
     }
-    if (flush && ok && fsync(dfd) != 0) {
-        print_errno("同步目标", dst, errno);
-        ok = false;
+    if (flush && ok && ioctl(dfd, BLKFLSBUF, 0) != 0) {
+        fprintf(stdout, "[!] 警告: 刷新块设备缓存失败: %s (%s, errno=%d)\n",
+                dst, strerror(errno), errno);
     }
     if (close(sfd) != 0) {
         print_errno("关闭源文件", src, errno);
@@ -190,11 +190,6 @@ static bool copy_file(const char *src, const char *dst, bool flush = false) {
         ok = false;
     }
     if (flush && ok) {
-        int block_fd = open(dst, O_RDONLY | O_CLOEXEC);
-        if (block_fd >= 0) {
-            ioctl(block_fd, BLKFLSBUF, 0);
-            close(block_fd);
-        }
         ok = verify_written_image(src, dst);
     }
     return ok;
