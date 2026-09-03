@@ -27,6 +27,9 @@ const i18n = {
     heroDesc: "自动识别当前活动槽位，若新版本存在GBL漏洞则跳过BL刷写；将BL镜像刷写到另一槽位，并将破解ABL放入persist的efisp目录、BDS刷入efisp分区",
     slotStatus: "槽位状态",
     refresh: "刷新",
+    languageSwitch: "English",
+    languageChanged: "已切换为中文",
+    languageChangeFailed: "语言切换失败",
     currentSlot: "当前槽位",
     targetSlot: "目标槽位",
     imageCount: "镜像数量",
@@ -101,6 +104,9 @@ const i18n = {
     heroDesc: "Auto-detect active slot. Skip BL flash if new build has GBL exploit. Flash BL images to inactive slot, place the cracked ABL in persist's efisp dir and flash the BDS to the efisp partition.",
     slotStatus: "Slot Status",
     refresh: "Refresh",
+    languageSwitch: "中文",
+    languageChanged: "Switched to English",
+    languageChangeFailed: "Language switch failed",
     currentSlot: "Current Slot",
     targetSlot: "Target Slot",
     imageCount: "Image Count",
@@ -186,6 +192,7 @@ const elements = {
   patchPartButton: document.getElementById("patchPartButton"),
   clearLogButton: document.getElementById("clearLogButton"),
   refreshButton: document.getElementById("refreshButton"),
+  languageButton: document.getElementById("languageButton"),
   confirmModal: document.getElementById("confirmModal"),
   confirmText: document.getElementById("confirmText"),
   nextConfirmButton: document.getElementById("nextConfirmButton"),
@@ -203,6 +210,8 @@ function applyLanguage(lang) {
   const t = i18n[lang];
   document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   elements.pageTitle.textContent = t.pageTitle;
+  elements.languageButton.textContent = t.languageSwitch;
+  elements.languageButton.setAttribute("aria-label", t.languageSwitch);
   document.querySelector("#lblKsuWebUI").textContent = t.ksuWebUI;
   document.querySelector(".hero-copy").textContent = t.heroDesc;
   document.querySelector("#lblSlotStatus").textContent = t.slotStatus;
@@ -261,6 +270,20 @@ async function runScript(action, arg) {
   if (errno !== 0) throw new Error(stderr || `Command failed: ${errno}`);
   return stdout || "";
 }
+
+async function toggleLanguage() {
+  const nextLanguage = state.lang === "zh" ? "en" : "zh";
+  try {
+    await runScript("set-language", nextLanguage);
+    applyLanguage(nextLanguage);
+    state.prevStatusRaw = "";
+    await refreshStatus();
+    toast(i18n[nextLanguage].languageChanged);
+  } catch (e) {
+    toast(`${i18n[state.lang].languageChangeFailed}: ${e.message}`);
+  }
+}
+
 function parseKeyValueOutput(output) {
   const info = {};
   for (const line of output.split(/[\r\n|]+/)) {
@@ -655,6 +678,7 @@ async function init() {
   }
 
   elements.refreshButton.addEventListener("click", manualRefresh);
+  elements.languageButton.addEventListener("click", toggleLanguage);
   elements.flashButton.addEventListener("click", () => openConfirmModal("flash"));
   elements.bdsToolsButton.addEventListener("click", () => openConfirmModal("bds-tools"));
   document.addEventListener("visibilitychange", () => {

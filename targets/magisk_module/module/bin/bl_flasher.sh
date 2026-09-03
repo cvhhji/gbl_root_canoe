@@ -275,13 +275,16 @@ place_efisp_tree_to() {
 build_patched_efi() {
   abl="$1"
   rm -f "$RUNTIME_DIR/LinuxLoader.efi" "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/patch.log"
-  if ! run_quiet "$TEXT_EXTRACT_FAILED" "$MODDIR/bin/extractfv" -o "$RUNTIME_DIR" -v "$abl"; then
+  if ! "$MODDIR/bin/extractfv" -o "$RUNTIME_DIR" -v "$abl" >> "$LOG_FILE" 2>&1; then
+    write_log "$TEXT_EXTRACT_FAILED"
     return 1
   fi
   if ! "$MODDIR/bin/patch_abl" "$RUNTIME_DIR/LinuxLoader.efi" "$RUNTIME_DIR/patched.efi" > "$RUNTIME_DIR/patch.log" 2>&1; then
-    log_failure_reason "$TEXT_PATCH_FAILED" "$RUNTIME_DIR/patch.log"
+    cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
+    write_log "$TEXT_PATCH_FAILED"
     return 1
   fi
+  cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
   [ -s "$RUNTIME_DIR/patched.efi" ] || { write_log "$TEXT_PATCH_FAILED"; return 1; }
 }
 
@@ -442,6 +445,7 @@ exec_patch_by_args() {
   cd "$BINDIR" || { write_log "$TEXT_BIN_NOT_FOUND: $BINDIR"; return 1; }
 
   if [ "$arg_vendor_boot" = "1" ]; then
+    write_log "$TEXT_PATCH_VENDORBOOT_START"
     if [ "$arg_debug" = "1" ]; then
       write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
@@ -460,6 +464,7 @@ exec_patch_by_args() {
   fi
 
   if [ "$arg_super" = "1" ]; then
+    write_log "$TEXT_PATCH_SUPER_START"
     if [ "$arg_debug" = "1" ]; then
       write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
@@ -584,11 +589,13 @@ run_flash() {
     for part in $IMAGE_NAMES; do
       dst=$(partition_path "$part" "$target_slot")
       src=$(partition_path "$part" "$current_slot")
-      if ! run_quiet "$TEXT_SET_RW_FAILED: $dst" blockdev --setrw "$dst"; then
+      if ! blockdev --setrw "$dst" >> "$LOG_FILE" 2>&1; then
+        write_log "$TEXT_SET_RW_FAILED: $dst"
         write_state error "$TEXT_SET_RW_FAILED"
         exit 1
       fi
-      if ! run_quiet "$TEXT_FLASH_PART $part failed" dd if="$src" of="$dst" bs=4M conv=fsync; then
+      if ! dd if="$src" of="$dst" bs=4M conv=fsync >> "$LOG_FILE" 2>&1; then
+        write_log "$TEXT_FLASH_PART $part failed"
         write_state error "$TEXT_FLASH_PART failed"
         exit 1
       fi
@@ -695,6 +702,25 @@ clear_log() {
   emit "CLEARED=1"
 }
 
+set_language() {
+  case "$1" in
+    zh)
+      _language_name="假回锁"
+      _language_description="自动刷新bl相关分区到非活动槽位"
+      ;;
+    en)
+      _language_name="Fake BL EFISP"
+      _language_description="Automatically flash BL-related partitions to inactive slot"
+      ;;
+    *) return 1 ;;
+  esac
+  printf '%s\n' "$1" > "$MODDIR/lang.txt" || return 1
+  sed -i "s|^name=.*|name=$_language_name|" "$MODDIR/module.prop" || return 1
+  sed -i "s|^description=.*|description=$_language_description|" "$MODDIR/module.prop" || return 1
+  ksud module config set user_lang "$1" >/dev/null 2>&1 || true
+  emit "LANG=$1"
+}
+
 case "$1" in
   status) print_status ;;
   flash) run_flash "$2" ;;
@@ -704,5 +730,6 @@ case "$1" in
   log) print_log ;;
   tail) tail_log ;;
   clear-log) clear_log ;;
+  set-language) set_language "$2" ;;
   *) exit 1 ;;
 esac

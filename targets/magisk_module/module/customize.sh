@@ -1,8 +1,4 @@
 #!/system/bin/sh
-ui_print "============================================="
-ui_print "  Please select language / 请选择语言"
-ui_print "  Vol+ = Chinese  |  Vol- = English"
-ui_print "============================================="
 
 read_volume_key() {
   case "$(timeout 0.5 getevent -l 2>/dev/null)" in
@@ -11,31 +7,60 @@ read_volume_key() {
   esac
 }
 
-LANG="zh"
-while true; do
+detect_default_language() {
+  saved_language=$(ksud module config get user_lang 2>/dev/null)
+  case "$saved_language" in
+    zh|en) echo "$saved_language"; return ;;
+  esac
+  for language_file in "$MODPATH/lang.txt" "/data/adb/modules/fake_bl_efisp/lang.txt"; do
+    if [ -f "$language_file" ]; then
+      saved_language=$(tr -d '[:space:]' < "$language_file")
+      case "$saved_language" in
+        zh|en) echo "$saved_language"; return ;;
+      esac
+    fi
+  done
+  system_locale=$(getprop persist.sys.locale 2>/dev/null)
+  [ -n "$system_locale" ] || system_locale=$(getprop ro.product.locale 2>/dev/null)
+  case "$system_locale" in
+    zh*) echo zh ;;
+    *) echo en ;;
+  esac
+}
+
+LANG=$(detect_default_language)
+ui_print "============================================="
+ui_print "  Please select language / 请选择语言"
+ui_print "  Vol+ = Chinese  |  Vol- = English"
+ui_print "  10s keep current / 10秒后保持当前: $LANG"
+ui_print "============================================="
+
+language_start=$(date +%s)
+while [ "$(($(date +%s) - language_start))" -lt 10 ]; do
   keyevent=$(read_volume_key)
   if [ "$keyevent" = "up" ]; then
-    LANG="zh"
-    ui_print "[已选择中文 / Chinese selected]"
+    LANG=zh
     break
   elif [ "$keyevent" = "down" ]; then
-    LANG="en"
-    ui_print "[English selected / 已选择英文]"
+    LANG=en
     break
   fi
 done
 
-echo "$LANG" > "$MODPATH/lang.txt"
-ksud module config set user_lang "$LANG" 2>/dev/null
-
-
 if [ "$LANG" = "zh" ]; then
-  echo "name=假回锁" >> "$MODPATH/module.prop"
-  echo "description=自动刷新bl相关分区到非活动槽位" >> "$MODPATH/module.prop"
+  ui_print "[已选择中文 / Chinese selected]"
+  module_name="假回锁"
+  module_description="自动刷新bl相关分区到非活动槽位"
 else
-  echo "name=Fake BL EFISP" >> "$MODPATH/module.prop"
-  echo "description=Automatically flash BL‑related partitions to inactive slot" >> "$MODPATH/module.prop"
+  ui_print "[English selected / 已选择英文]"
+  module_name="Fake BL EFISP"
+  module_description="Automatically flash BL-related partitions to inactive slot"
 fi
+
+printf '%s\n' "$LANG" > "$MODPATH/lang.txt"
+ksud module config set user_lang "$LANG" 2>/dev/null || true
+sed -i "s|^name=.*|name=$module_name|" "$MODPATH/module.prop"
+sed -i "s|^description=.*|description=$module_description|" "$MODPATH/module.prop"
 
 if [ "$LANG" = "zh" ]; then
   T_OPT_MENU="====================================="

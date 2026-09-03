@@ -107,6 +107,11 @@ body::before {
   gap: 10px;
 }
 
+.language-button {
+  min-height: 36px;
+  padding: 0 14px;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
