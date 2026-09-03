@@ -244,7 +244,7 @@ RUNTIME_DIR=$MODPATH/tmp
 PERSIST_MNT=/mnt/vendor/persist
 EFISP_DIR=$PERSIST_MNT/efisp
 ABLREPO_URL="https://raw.githubusercontent.com/superturtlee/gbl_root_canoe/main/ablrepo"
-mkdir -p $RUNTIME_DIR
+mkdir -p "$RUNTIME_DIR"
 
 # Verify $1 against the sha256 in $2 (first whitespace‑delimited token).
 verify_sha256() {
@@ -346,11 +346,11 @@ while true; do
       # built above from the running ABL) stays untouched. The repo ABL is
       # trusted to carry the vuln.
       ui_print "$T_ABLREPO_DOWNGRADE"
-      if ! blockdev --setrw "$abl_part" >> $RUNTIME_DIR/flash.log 2>&1; then
+      if ! blockdev --setrw "$abl_part" >> "$RUNTIME_DIR/flash.log" 2>&1; then
         ui_print "$T_ABL_SETRW_FAIL"
         abort "setrw abl failed"
       fi
-      if ! dd if=$RUNTIME_DIR/repo_abl.img of="$abl_part" bs=4M conv=fsync >> $RUNTIME_DIR/flash.log 2>&1; then
+      if ! dd if="$RUNTIME_DIR/repo_abl.img" of="$abl_part" bs=4M conv=fsync >> "$RUNTIME_DIR/flash.log" 2>&1; then
         ui_print "$T_ABL_FLASH_FAIL"
         abort "downgrade abl failed"
       fi
@@ -365,7 +365,7 @@ while true; do
     fi
     mkdir -p "$EFISP_DIR" || { ui_print "$T_EFISP_DIR_FAIL"; abort "efisp mkdir failed"; }
     [ -f "$EFISP_DIR/boot.efi" ] && mv "$EFISP_DIR/boot.efi" "$EFISP_DIR/boot_backup.efi"
-    if ! cp $RUNTIME_DIR/patched.efi "$EFISP_DIR/boot.efi"; then
+    if ! cp "$RUNTIME_DIR/patched.efi" "$EFISP_DIR/boot.efi"; then
       ui_print "$T_EFISP_WRITE_FAIL"
       abort "efisp write failed"
     fi
@@ -373,22 +373,22 @@ while true; do
     sync
 
     ui_print "$T_FLASH_BDS"
-    if ! blockdev --setrw $BY_NAME_DIR/efisp >> $RUNTIME_DIR/flash.log 2>&1; then
+    if ! blockdev --setrw "$BY_NAME_DIR/efisp" >> "$RUNTIME_DIR/flash.log" 2>&1; then
       ui_print "$T_SETRW_FAIL"
       abort "setrw failed"
     fi
-    if ! dd if=$MODPATH/BDS.efi of=$BY_NAME_DIR/efisp bs=4M conv=fsync >> $RUNTIME_DIR/flash.log 2>&1; then
+    if ! dd if="$MODPATH/BDS.efi" of="$BY_NAME_DIR/efisp" bs=4M conv=fsync >> "$RUNTIME_DIR/flash.log" 2>&1; then
       ui_print "$T_FLASH_FAIL"
       abort "flash failed"
     fi
     sync
     ui_print "$T_DONE_YES"
-    rm -rf $RUNTIME_DIR
+    rm -rf "$RUNTIME_DIR"
     break
   elif [ "$keyevent" = "down" ]; then
     ui_print "$T_SEL_NO"
     ui_print "$T_DONE_NO"
-    rm -rf $RUNTIME_DIR
+    rm -rf "$RUNTIME_DIR"
     break
   fi
 done
