@@ -195,6 +195,41 @@ slot_suffix_to_letter() {
 
 partition_path() { echo "$BY_NAME_DIR/$1$2"; }
 
+set_partition_writable() {
+  _partition="$1"
+  if [ ! -b "$_partition" ]; then
+    write_log "block device not found: $_partition"
+    return 1
+  fi
+
+  _attempt=1
+  while [ "$_attempt" -le 3 ]; do
+    if blockdev --setrw "$_partition" >> "$LOG_FILE" 2>&1; then
+      write_log "partition writable: $_partition"
+      return 0
+    fi
+    write_log "$TEXT_SET_RW_FAILED: $_partition (attempt $_attempt/3)"
+    sync
+    sleep 1
+    _attempt=$((_attempt + 1))
+  done
+  return 1
+}
+
+flash_bds_image() {
+  _efisp_partition="$BY_NAME_DIR/efisp"
+  if ! set_partition_writable "$_efisp_partition"; then
+    write_log "$TEXT_EFISP_SET_RW_FAILED"
+    return 1
+  fi
+  if ! dd if="$BDS_EFI" of="$_efisp_partition" bs=4M conv=fsync >> "$LOG_FILE" 2>&1; then
+    write_log "$TEXT_EFISP_FLASH_FAILED"
+    return 1
+  fi
+  sync
+  write_log "$TEXT_EFISP_FLASH_OK"
+}
+
 current_pid() {
   [ -f "$PID_FILE" ] || return 1
   pid=$(tr -d '[:space:]' < "$PID_FILE")
@@ -231,7 +266,7 @@ update_efisp() {
   clean_workdir
   build_patched_efi "$abl" || return 1
 
-  if grep -q "Warning: Failed to patch ABL GBL" $RUNTIME_DIR/patch.log; then
+  if grep -q "Warning: Failed to patch ABL GBL" "$RUNTIME_DIR/patch.log"; then
     gbl_vuln=0
   else
     gbl_vuln=1
@@ -255,7 +290,7 @@ update_efisp() {
     write_log "$TEXT_BACKUP_BOOT"
   fi
 
-  if ! cp $RUNTIME_DIR/patched.efi "$efisp_target/boot.efi" >> "$LOG_FILE" 2>&1; then
+  if ! cp "$RUNTIME_DIR/patched.efi" "$efisp_target/boot.efi" >> "$LOG_FILE" 2>&1; then
     write_log "$TEXT_EFISP_WRITE_FAILED"
     return 1
   fi
@@ -267,16 +302,7 @@ update_efisp() {
     return 0
   fi
 
-  if ! blockdev --setrw "$BY_NAME_DIR/efisp" >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_SET_RW_FAILED"
-    return 1
-  fi
-  if ! dd if="$BDS_EFI" of="$BY_NAME_DIR/efisp" bs=4M conv=fsync >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_FLASH_FAILED"
-    return 1
-  fi
-  sync
-  write_log "$TEXT_EFISP_FLASH_OK"
+  flash_bds_image || return 1
 
   if [ "$gbl_vuln" = "1" ]; then
     write_log "$TEXT_GBL_VULN"
@@ -325,16 +351,7 @@ update_bds_tools() {
 
   mkdir -p "$EFISP_DIR" >> "$LOG_FILE" 2>&1 || { write_log "$TEXT_EFISP_MKDIR_FAILED"; return 1; }
 
-  if ! blockdev --setrw "$BY_NAME_DIR/efisp" >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_SET_RW_FAILED"
-    return 1
-  fi
-  if ! dd if="$BDS_EFI" of="$BY_NAME_DIR/efisp" bs=4M conv=fsync >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_FLASH_FAILED"
-    return 1
-  fi
-  sync
-  write_log "$TEXT_EFISP_FLASH_OK"
+  flash_bds_image || return 1
 
   place_efisp_tree_to "$EFISP_DIR" || { write_log "$TEXT_EFISP_WRITE_FAILED"; return 1; }
   sync
@@ -393,6 +410,11 @@ exec_patch_by_args() {
   fi
   slot_letter=$(slot_suffix_to_letter "$target_slot_suffix")
 
+  if [ "$arg_debug" != "1" ]; then
+    patch_partition=$(partition_path vendor_boot "$target_slot_suffix")
+    set_partition_writable "$patch_partition" || return 1
+  fi
+
   _old_pwd="$PWD"
   cd "$BINDIR" || { write_log "$TEXT_BIN_NOT_FOUND: $BINDIR"; return 1; }
 
@@ -402,7 +424,7 @@ exec_patch_by_args() {
       write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
       if [ -x "$BINDIR/patch_tools" ]; then
-        "$BINDIR/patch_tools" patch_vendor "$slot_letter" >> "$LOG_FILE" 2>/dev/null
+        "$BINDIR/patch_tools" patch_vendor "$slot_letter" >> "$LOG_FILE" 2>&1
         ret=$?
         if [ $ret -ne 0 ]; then
           write_log "$TEXT_PATCH_ERR (ret:$ret)"
@@ -424,7 +446,7 @@ exec_patch_by_args() {
       write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
       if [ -x "$BINDIR/patch_tools" ]; then
-        "$BINDIR/patch_tools" patch_vendor "$slot_letter" super >> "$LOG_FILE" 2>/dev/null
+        "$BINDIR/patch_tools" patch_vendor "$slot_letter" super >> "$LOG_FILE" 2>&1
         ret=$?
         if [ $ret -ne 0 ]; then
           write_log "$TEXT_PATCH_ERR (ret:$ret)"

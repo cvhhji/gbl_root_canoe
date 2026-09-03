@@ -13,6 +13,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Validate module scripts
+      run: |
+        bash -n targets/magisk_module/module/customize.sh
+        bash -n targets/magisk_module/module/bin/bl_flasher.sh
+        node --check targets/magisk_module/module/webroot/app.js
+        node --check targets/magisk_module/module/webroot/kernelsu.js
+
     - name: Install dependencies
       run: |
         sudo apt-get update

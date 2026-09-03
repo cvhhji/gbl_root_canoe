@@ -2,6 +2,7 @@
 // 集成进 magiskboot，直接调用 unpack/repack API + rust::cpio_commands，
 // 不依赖外部 mboot 二进制。支持 vendor_boot header v4（vendor_ramdisk）。
 #include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #include <strings.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <linux/fs.h>
 
 #include "magiskboot.hpp"
 #include "boot-rs.hpp"
@@ -21,20 +23,143 @@ static bool write_all(int fd, const void *data, size_t size) {
     while (size) {
         ssize_t written = write(fd, p, size);
         if (written < 0 && errno == EINTR) continue;
-        if (written <= 0) return false;
+        if (written < 0) return false;
+        if (written == 0) {
+            errno = EIO;
+            return false;
+        }
         p += written;
         size -= static_cast<size_t>(written);
     }
     return true;
 }
 
+static void print_errno(const char *action, const char *path, int error) {
+    fprintf(stdout, "[!] %s %s 失败: %s (errno=%d)\n",
+            action, path, strerror(error), error);
+}
+
+static bool set_block_writable(const char *path) {
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        print_errno("打开块设备", path, errno);
+        return false;
+    }
+
+    int read_only = 0;
+    if (ioctl(fd, BLKROGET, &read_only) == 0 && read_only) {
+        read_only = 0;
+        if (ioctl(fd, BLKROSET, &read_only) != 0) {
+            int error = errno;
+            close(fd);
+            print_errno("解除只读", path, error);
+            return false;
+        }
+    }
+
+    if (close(fd) != 0) {
+        print_errno("关闭块设备", path, errno);
+        return false;
+    }
+    return true;
+}
+
+static bool verify_written_image(const char *image, const char *block) {
+    int image_fd = open(image, O_RDONLY | O_CLOEXEC);
+    if (image_fd < 0) {
+        print_errno("打开校验镜像", image, errno);
+        return false;
+    }
+    int block_fd = open(block, O_RDONLY | O_CLOEXEC);
+    if (block_fd < 0) {
+        int error = errno;
+        close(image_fd);
+        print_errno("打开校验分区", block, error);
+        return false;
+    }
+
+    char image_buf[65536];
+    char block_buf[65536];
+    bool ok = true;
+    for (;;) {
+        ssize_t image_size;
+        do {
+            image_size = read(image_fd, image_buf, sizeof(image_buf));
+        } while (image_size < 0 && errno == EINTR);
+        if (image_size < 0) {
+            print_errno("读取校验镜像", image, errno);
+            ok = false;
+            break;
+        }
+        if (image_size == 0) break;
+
+        size_t offset = 0;
+        while (offset < static_cast<size_t>(image_size)) {
+            ssize_t block_size = read(block_fd, block_buf + offset,
+                                      static_cast<size_t>(image_size) - offset);
+            if (block_size < 0 && errno == EINTR) continue;
+            if (block_size <= 0) {
+                if (block_size < 0) {
+                    print_errno("读取校验分区", block, errno);
+                } else {
+                    fprintf(stdout, "[!] 校验分区提前结束: %s\n", block);
+                }
+                ok = false;
+                break;
+            }
+            offset += static_cast<size_t>(block_size);
+        }
+        if (!ok ||
+            memcmp(image_buf, block_buf, static_cast<size_t>(image_size)) != 0) {
+            if (ok) fprintf(stdout, "[!] 写入后校验不一致: %s\n", block);
+            ok = false;
+            break;
+        }
+    }
+
+    if (close(image_fd) != 0) ok = false;
+    if (close(block_fd) != 0) ok = false;
+    return ok;
+}
+
 static bool copy_file(const char *src, const char *dst, bool flush = false) {
-    int sfd = open(src, O_RDONLY);
-    if (sfd < 0) return false;
-    int dfd = open(dst, O_WRONLY | (flush ? 0 : O_CREAT | O_TRUNC), 0644);
-    if (dfd < 0) {
+    int sfd = open(src, O_RDONLY | O_CLOEXEC);
+    if (sfd < 0) {
+        print_errno("打开源文件", src, errno);
+        return false;
+    }
+    if (flush && !set_block_writable(dst)) {
         close(sfd);
         return false;
+    }
+
+    int flags = O_WRONLY | O_CLOEXEC | (flush ? 0 : O_CREAT | O_TRUNC);
+    int dfd = open(dst, flags, 0644);
+    if (dfd < 0) {
+        int error = errno;
+        close(sfd);
+        print_errno("打开目标", dst, error);
+        return false;
+    }
+
+    if (flush) {
+        struct stat source_info{};
+        uint64_t block_size = 0;
+        if (fstat(sfd, &source_info) != 0) {
+            print_errno("读取镜像大小", src, errno);
+            close(sfd);
+            close(dfd);
+            return false;
+        }
+        if (ioctl(dfd, BLKGETSIZE64, &block_size) == 0 &&
+            static_cast<uint64_t>(source_info.st_size) > block_size) {
+            fprintf(stdout, "[!] 镜像大于目标分区: %lld > %llu bytes\n",
+                    static_cast<long long>(source_info.st_size),
+                    static_cast<unsigned long long>(block_size));
+            close(sfd);
+            close(dfd);
+            return false;
+        }
     }
 
     char buf[65536];
@@ -47,13 +172,31 @@ static bool copy_file(const char *src, const char *dst, bool flush = false) {
             break;
         }
         if (!write_all(dfd, buf, static_cast<size_t>(n))) {
+            print_errno("写入目标", dst, errno);
             ok = false;
             break;
         }
     }
-    if (flush && ok) ioctl(dfd, BLKFLSBUF, 0);
-    if (close(sfd) != 0) ok = false;
-    if (close(dfd) != 0) ok = false;
+    if (flush && ok && fsync(dfd) != 0) {
+        print_errno("同步目标", dst, errno);
+        ok = false;
+    }
+    if (close(sfd) != 0) {
+        print_errno("关闭源文件", src, errno);
+        ok = false;
+    }
+    if (close(dfd) != 0) {
+        print_errno("关闭目标", dst, errno);
+        ok = false;
+    }
+    if (flush && ok) {
+        int block_fd = open(dst, O_RDONLY | O_CLOEXEC);
+        if (block_fd >= 0) {
+            ioctl(block_fd, BLKFLSBUF, 0);
+            close(block_fd);
+        }
+        ok = verify_written_image(src, dst);
+    }
     return ok;
 }
 
