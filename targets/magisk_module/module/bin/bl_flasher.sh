@@ -127,6 +127,7 @@ EFISP_DIR="$PERSIST_MNT/efisp"
 BDS_EFI="$MODDIR/BDS.efi"
 IMAGE_NAMES="abl"
 LOG_FILE="$RUNTIME_DIR/flash.log"
+COMMAND_LOG="$RUNTIME_DIR/command.log"
 STATE_FILE="$RUNTIME_DIR/state"
 MESSAGE_FILE="$RUNTIME_DIR/message"
 UPDATED_FILE="$RUNTIME_DIR/updated"
@@ -173,6 +174,33 @@ write_log() {
   echo "[$(timestamp)] $*" >> "$LOG_FILE"
 }
 
+log_failure_reason() {
+  _failure_label="$1"
+  _failure_file="$2"
+  _failure_reason=""
+  if [ -s "$_failure_file" ]; then
+    _failure_reason=$(sed '/^[[:space:]]*$/d' "$_failure_file" | tail -n 1 | tr '\r\n' ' ' | cut -c 1-240)
+  fi
+  if [ -n "$_failure_reason" ]; then
+    write_log "$_failure_label: $_failure_reason"
+  else
+    write_log "$_failure_label"
+  fi
+}
+
+run_quiet() (
+  _quiet_failure="$1"
+  shift
+  : > "$COMMAND_LOG"
+  "$@" > "$COMMAND_LOG" 2>&1
+  _quiet_result=$?
+  if [ "$_quiet_result" -ne 0 ]; then
+    log_failure_reason "$_quiet_failure" "$COMMAND_LOG"
+  fi
+  rm -f "$COMMAND_LOG"
+  return "$_quiet_result"
+)
+
 detect_current_slot() {
   case "$(getprop ro.boot.slot_suffix 2>/dev/null)" in
     _a) echo _a ;;
@@ -204,26 +232,26 @@ set_partition_writable() {
 
   _attempt=1
   while [ "$_attempt" -le 3 ]; do
-    if blockdev --setrw "$_partition" >> "$LOG_FILE" 2>&1; then
-      write_log "partition writable: $_partition"
+    : > "$COMMAND_LOG"
+    if blockdev --setrw "$_partition" > "$COMMAND_LOG" 2>&1; then
+      rm -f "$COMMAND_LOG"
       return 0
     fi
-    write_log "$TEXT_SET_RW_FAILED: $_partition (attempt $_attempt/3)"
     sync
     sleep 1
     _attempt=$((_attempt + 1))
   done
+  log_failure_reason "$TEXT_SET_RW_FAILED: $_partition" "$COMMAND_LOG"
+  rm -f "$COMMAND_LOG"
   return 1
 }
 
 flash_bds_image() {
   _efisp_partition="$BY_NAME_DIR/efisp"
   if ! set_partition_writable "$_efisp_partition"; then
-    write_log "$TEXT_EFISP_SET_RW_FAILED"
     return 1
   fi
-  if ! dd if="$BDS_EFI" of="$_efisp_partition" bs=4M conv=fsync >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_FLASH_FAILED"
+  if ! run_quiet "$TEXT_EFISP_FLASH_FAILED" dd if="$BDS_EFI" of="$_efisp_partition" bs=4M conv=fsync; then
     return 1
   fi
   sync
@@ -241,22 +269,19 @@ current_pid() {
 persist_mounted() { grep -q " $PERSIST_MNT " /proc/mounts; }
 
 place_efisp_tree_to() {
-  cp -r "$MODDIR/efisp/." "$1/" >> "$LOG_FILE" 2>&1
+  run_quiet "$TEXT_EFISP_WRITE_FAILED" cp -r "$MODDIR/efisp/." "$1/"
 }
 
 build_patched_efi() {
   abl="$1"
   rm -f "$RUNTIME_DIR/LinuxLoader.efi" "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/patch.log"
-  if ! "$MODDIR/bin/extractfv" -o "$RUNTIME_DIR" -v "$abl" >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EXTRACT_FAILED"
+  if ! run_quiet "$TEXT_EXTRACT_FAILED" "$MODDIR/bin/extractfv" -o "$RUNTIME_DIR" -v "$abl"; then
     return 1
   fi
   if ! "$MODDIR/bin/patch_abl" "$RUNTIME_DIR/LinuxLoader.efi" "$RUNTIME_DIR/patched.efi" > "$RUNTIME_DIR/patch.log" 2>&1; then
-    cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
-    write_log "$TEXT_PATCH_FAILED"
+    log_failure_reason "$TEXT_PATCH_FAILED" "$RUNTIME_DIR/patch.log"
     return 1
   fi
-  cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
   [ -s "$RUNTIME_DIR/patched.efi" ] || { write_log "$TEXT_PATCH_FAILED"; return 1; }
 }
 
@@ -283,18 +308,17 @@ update_efisp() {
     fi
   fi
 
-  mkdir -p "$efisp_target" >> "$LOG_FILE" 2>&1 || { write_log "$TEXT_EFISP_MKDIR_FAILED"; return 1; }
+  run_quiet "$TEXT_EFISP_MKDIR_FAILED" mkdir -p "$efisp_target" || return 1
 
   if [ "$is_debug" != "yes" ] && [ -f "$efisp_target/boot.efi" ]; then
-    mv "$efisp_target/boot.efi" "$efisp_target/boot_backup.efi" >> "$LOG_FILE" 2>&1 || { write_log "$TEXT_EFISP_WRITE_FAILED"; return 1; }
+    run_quiet "$TEXT_EFISP_WRITE_FAILED" mv "$efisp_target/boot.efi" "$efisp_target/boot_backup.efi" || return 1
     write_log "$TEXT_BACKUP_BOOT"
   fi
 
-  if ! cp "$RUNTIME_DIR/patched.efi" "$efisp_target/boot.efi" >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_WRITE_FAILED"
+  if ! run_quiet "$TEXT_EFISP_WRITE_FAILED" cp "$RUNTIME_DIR/patched.efi" "$efisp_target/boot.efi"; then
     return 1
   fi
-  place_efisp_tree_to "$efisp_target" || { write_log "$TEXT_EFISP_WRITE_FAILED"; return 1; }
+  place_efisp_tree_to "$efisp_target" || return 1
   sync
   write_log "$TEXT_EFISP_FILES_OK"
 
@@ -349,17 +373,17 @@ update_bds_tools() {
     return 2
   fi
 
-  mkdir -p "$EFISP_DIR" >> "$LOG_FILE" 2>&1 || { write_log "$TEXT_EFISP_MKDIR_FAILED"; return 1; }
+  run_quiet "$TEXT_EFISP_MKDIR_FAILED" mkdir -p "$EFISP_DIR" || return 1
 
   flash_bds_image || return 1
 
-  place_efisp_tree_to "$EFISP_DIR" || { write_log "$TEXT_EFISP_WRITE_FAILED"; return 1; }
+  place_efisp_tree_to "$EFISP_DIR" || return 1
   sync
   write_log "$TEXT_EFISP_FILES_OK"
   return 0
 }
 
-cleanup_lock() { rm -rf "$LOCK_DIR" "$PID_FILE"; }
+cleanup_lock() { rm -rf "$LOCK_DIR" "$PID_FILE" "$COMMAND_LOG" "$RUNTIME_DIR/patch.log"; }
 
 print_status() {
   ensure_runtime
@@ -418,15 +442,11 @@ exec_patch_by_args() {
   cd "$BINDIR" || { write_log "$TEXT_BIN_NOT_FOUND: $BINDIR"; return 1; }
 
   if [ "$arg_vendor_boot" = "1" ]; then
-    write_log "$TEXT_PATCH_VENDORBOOT_START"
     if [ "$arg_debug" = "1" ]; then
       write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
       if [ -x "$BINDIR/patch_tools" ]; then
-        "$BINDIR/patch_tools" patch_vendor "$slot_letter" >> "$LOG_FILE" 2>&1
-        ret=$?
-        if [ $ret -ne 0 ]; then
-          write_log "$TEXT_PATCH_ERR (ret:$ret)"
+        if ! run_quiet "$TEXT_PATCH_ERR" "$BINDIR/patch_tools" patch_vendor "$slot_letter"; then
           cd "$_old_pwd"
           return 1
         fi
@@ -440,15 +460,11 @@ exec_patch_by_args() {
   fi
 
   if [ "$arg_super" = "1" ]; then
-    write_log "$TEXT_PATCH_SUPER_START"
     if [ "$arg_debug" = "1" ]; then
       write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
       if [ -x "$BINDIR/patch_tools" ]; then
-        "$BINDIR/patch_tools" patch_vendor "$slot_letter" super >> "$LOG_FILE" 2>&1
-        ret=$?
-        if [ $ret -ne 0 ]; then
-          write_log "$TEXT_PATCH_ERR (ret:$ret)"
+        if ! run_quiet "$TEXT_PATCH_ERR" "$BINDIR/patch_tools" patch_vendor "$slot_letter" super; then
           cd "$_old_pwd"
           return 1
         fi
@@ -512,10 +528,9 @@ run_flash() {
 
   if [ "$base_mode" = "skip-efisp" ]; then
     write_state running "$TEXT_PATCH_ONLY"
-    write_log "$TEXT_PATCH_ONLY"
 
     if [ -z "$patch_args" ]; then
-    write_log "$TEXT_PATCH_NO_SELECTED"
+      write_log "$TEXT_PATCH_NO_SELECTED"
       write_state error "$TEXT_PATCH_NO_SELECTED"
       exit 0
     fi
@@ -525,7 +540,6 @@ run_flash() {
     if [ $res -eq 0 ]; then
       write_state success "$TEXT_ALL_OK_NO_EFISP"
     elif [ $res -eq 2 ]; then
-    write_log "$TEXT_PATCH_NO_SELECTED"
       write_state error "$TEXT_PATCH_NO_SELECTED"
     else
       write_state error "$TEXT_PATCH_ERR"
@@ -570,8 +584,14 @@ run_flash() {
     for part in $IMAGE_NAMES; do
       dst=$(partition_path "$part" "$target_slot")
       src=$(partition_path "$part" "$current_slot")
-      blockdev --setrw "$dst" >> "$LOG_FILE" 2>&1 || { write_state error "$TEXT_SET_RW_FAILED"; exit 1; }
-      dd if="$src" of="$dst" bs=4M conv=fsync >> "$LOG_FILE" 2>&1 || { write_state error "$TEXT_FLASH_PART failed"; exit 1; }
+      if ! run_quiet "$TEXT_SET_RW_FAILED: $dst" blockdev --setrw "$dst"; then
+        write_state error "$TEXT_SET_RW_FAILED"
+        exit 1
+      fi
+      if ! run_quiet "$TEXT_FLASH_PART $part failed" dd if="$src" of="$dst" bs=4M conv=fsync; then
+        write_state error "$TEXT_FLASH_PART failed"
+        exit 1
+      fi
       sync
       write_log "$TEXT_FLASH_PART $part -> $dst $TEXT_FLASH_OK"
     done
@@ -579,19 +599,16 @@ run_flash() {
 
   patch_fail=0
   if [ -n "$patch_args" ]; then
-    write_log "$TEXT_PATCH_START (target slot)"
     exec_patch_by_args "$patch_args" "$target_slot"
     if [ $? -ne 0 ]; then
       patch_fail=1
-      write_log "$TEXT_PATCH_ERR on target slot"
     fi
   fi
 
   if [ $efisp_fail -eq 1 ] || [ $patch_fail -eq 1 ]; then
-    write_log "BL done, partial failed"
     write_state warning "BL done, partial failed"
   elif [ "$skip_abl_flash" = "1" ] && [ -n "$patch_args" ]; then
-    write_log "$TEXT_PATCH_DONE"
+  write_log "$TEXT_PATCH_DONE"
     write_state success "$TEXT_PATCH_DONE"
   elif [ "$skip_abl_flash" = "1" ]; then
     write_log "$TEXT_GBL_VULN_SKIP"
@@ -612,18 +629,14 @@ run_patch() {
   : > "$LOG_FILE"
 
   write_state running "$TEXT_PATCH_START"
-  write_log "$TEXT_PATCH_START"
-  write_log "$TEXT_PATCH_ARGS: $arg_str"
 
   exec_patch_by_args "$arg_str"
   res=$?
 
   if [ $res -eq 1 ]; then
-    write_log "$TEXT_PATCH_BOTH_ERR"
-    write_state error "$TEXT_PATCH_BOTH_ERR"
+    write_state error "$TEXT_PATCH_ERR"
     exit 1
   elif [ $res -eq 2 ]; then
-    write_log "$TEXT_PATCH_NO_SELECTED"
     write_state error "$TEXT_PATCH_NO_SELECTED"
     exit 0
   fi

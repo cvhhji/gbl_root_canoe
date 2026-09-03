@@ -17,6 +17,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - uses: actions/checkout@v4
+
+    - name: Validate release version
+      shell: bash
+      run: |
+        set -eu
+        . ./VERSION
+        [ "$GITHUB_REF_NAME" = "$VERSION" ] || {
+          echo "Release tag must match VERSION"
+          exit 1
+        }
+
     - name: Download artifacts
       uses: actions/download-artifact@v4
 
@@ -35,6 +47,7 @@ jobs:
       with:
         name: ${{ github.ref_name }}
         generate_release_notes: false
+        body_path: RELEASE_NOTES.md
         files: |
           toolkit_linux.zip
           toolkit_windows.zip
