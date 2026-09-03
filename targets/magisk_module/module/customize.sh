@@ -1,5 +1,7 @@
 #!/system/bin/sh
 
+export KSU_MODULE=${KSU_MODULE:-fake_bl_efisp}
+
 read_volume_key() {
   case "$(timeout 0.5 getevent -l 2>/dev/null)" in
     *KEY_VOLUMEUP*) echo up ;;
@@ -12,14 +14,6 @@ detect_default_language() {
   case "$saved_language" in
     zh|en) echo "$saved_language"; return ;;
   esac
-  for language_file in "$MODPATH/lang.txt" "/data/adb/modules/fake_bl_efisp/lang.txt"; do
-    if [ -f "$language_file" ]; then
-      saved_language=$(tr -d '[:space:]' < "$language_file")
-      case "$saved_language" in
-        zh|en) echo "$saved_language"; return ;;
-      esac
-    fi
-  done
   system_locale=$(getprop persist.sys.locale 2>/dev/null)
   [ -n "$system_locale" ] || system_locale=$(getprop ro.product.locale 2>/dev/null)
   case "$system_locale" in
@@ -57,7 +51,6 @@ else
   module_description="Automatically flash BL-related partitions to inactive slot"
 fi
 
-printf '%s\n' "$LANG" > "$MODPATH/lang.txt"
 ksud module config set user_lang "$LANG" 2>/dev/null || true
 sed -i "s|^name=.*|name=$module_name|" "$MODPATH/module.prop"
 sed -i "s|^description=.*|description=$module_description|" "$MODPATH/module.prop"

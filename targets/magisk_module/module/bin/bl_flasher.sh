@@ -9,19 +9,27 @@ fi
 
 export MODPATH=$MODDIR
 export BINDIR=$MODDIR/bin
+export KSU_MODULE=${KSU_MODULE:-fake_bl_efisp}
 
-LANG=zh
-if [ -f "$MODDIR/lang.txt" ]; then
-  USER_LANG=$(tr -d '[:space:]' < "$MODDIR/lang.txt")
-  if [ "$USER_LANG" = "en" ]; then
-    LANG=en
-  fi
-fi
+USER_LANG=$(ksud module config get user_lang 2>/dev/null)
+case "$USER_LANG" in
+  zh|en) LANG=$USER_LANG ;;
+  *)
+    SYSTEM_LOCALE=$(getprop persist.sys.locale 2>/dev/null)
+    [ -n "$SYSTEM_LOCALE" ] || SYSTEM_LOCALE=$(getprop ro.product.locale 2>/dev/null)
+    case "$SYSTEM_LOCALE" in
+      zh*) LANG=zh ;;
+      *) LANG=en ;;
+    esac
+    ;;
+esac
 
 if [ "$LANG" = "zh" ]; then
   TEXT_IDLE="等待操作"
   TEXT_NO_SLOT="无法识别当前槽位"
   TEXT_NO_TARGET_SLOT="无法计算目标槽位"
+  TEXT_CURRENT_SLOT_LABEL="当前槽位"
+  TEXT_TARGET_SLOT_LABEL="目标槽位"
   TEXT_FLASHING="刷写任务运行中，目标槽位"
   TEXT_PATCH_ONLY="分区修补任务运行中"
   TEXT_DEBUG_MODE="调试模式：仅处理不刷写，efisp 目录使用模块 tmp/efisp"
@@ -72,6 +80,8 @@ else
   TEXT_IDLE="Waiting"
   TEXT_NO_SLOT="Cannot detect current slot"
   TEXT_NO_TARGET_SLOT="Cannot detect target slot"
+  TEXT_CURRENT_SLOT_LABEL="Current slot"
+  TEXT_TARGET_SLOT_LABEL="Target slot"
   TEXT_FLASHING="Flash task running, target slot"
   TEXT_PATCH_ONLY="Partition patch task running"
   TEXT_DEBUG_MODE="Debug Mode: process only, no flash; efisp dir uses module tmp/efisp"
@@ -445,7 +455,7 @@ exec_patch_by_args() {
   cd "$BINDIR" || { write_log "$TEXT_BIN_NOT_FOUND: $BINDIR"; return 1; }
 
   if [ "$arg_vendor_boot" = "1" ]; then
-    write_log "$TEXT_PATCH_VENDORBOOT_START"
+    write_log "$TEXT_PATCH_VENDORBOOT_START ($TEXT_PATCH_SLOT: $target_slot_suffix)"
     if [ "$arg_debug" = "1" ]; then
       write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
@@ -460,11 +470,11 @@ exec_patch_by_args() {
         return 1
       fi
     fi
-    write_log "$TEXT_PATCH_VENDORBOOT_DONE"
+    write_log "$TEXT_PATCH_VENDORBOOT_DONE ($TEXT_PATCH_SLOT: $target_slot_suffix)"
   fi
 
   if [ "$arg_super" = "1" ]; then
-    write_log "$TEXT_PATCH_SUPER_START"
+    write_log "$TEXT_PATCH_SUPER_START ($TEXT_PATCH_SLOT: $target_slot_suffix)"
     if [ "$arg_debug" = "1" ]; then
       write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
@@ -479,7 +489,7 @@ exec_patch_by_args() {
         return 1
       fi
     fi
-    write_log "$TEXT_PATCH_SUPER_DONE"
+    write_log "$TEXT_PATCH_SUPER_DONE ($TEXT_PATCH_SLOT: $target_slot_suffix)"
   fi
 
   cd "$_old_pwd"
@@ -532,7 +542,7 @@ run_flash() {
   [ -z "$target_slot" ] && { write_state error "$TEXT_NO_TARGET_SLOT"; exit 1; }
 
   if [ "$base_mode" = "skip-efisp" ]; then
-    write_state running "$TEXT_PATCH_ONLY"
+    write_state running "$TEXT_PATCH_ONLY ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
 
     if [ -z "$patch_args" ]; then
       write_log "$TEXT_PATCH_NO_SELECTED"
@@ -543,7 +553,8 @@ run_flash() {
     exec_patch_by_args "$patch_args" "$target_slot"
     res=$?
     if [ $res -eq 0 ]; then
-      write_state success "$TEXT_ALL_OK_NO_EFISP"
+      write_log "$TEXT_PATCH_DONE ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
+      write_state success "$TEXT_ALL_OK_NO_EFISP ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
     elif [ $res -eq 2 ]; then
       write_state error "$TEXT_PATCH_NO_SELECTED"
     else
@@ -613,16 +624,16 @@ run_flash() {
   fi
 
   if [ $efisp_fail -eq 1 ] || [ $patch_fail -eq 1 ]; then
-    write_state warning "BL done, partial failed"
+    write_state warning "BL done, partial failed ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
   elif [ "$skip_abl_flash" = "1" ] && [ -n "$patch_args" ]; then
-  write_log "$TEXT_PATCH_DONE"
-    write_state success "$TEXT_PATCH_DONE"
+    write_log "$TEXT_PATCH_DONE ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
+    write_state success "$TEXT_PATCH_DONE ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
   elif [ "$skip_abl_flash" = "1" ]; then
-    write_log "$TEXT_GBL_VULN_SKIP"
-    write_state success "$TEXT_GBL_VULN_SKIP"
+    write_log "$TEXT_GBL_VULN_SKIP ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
+    write_state success "$TEXT_GBL_VULN_SKIP ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
   else
-    write_log "$TEXT_ALL_OK"
-    write_state success "$TEXT_ALL_OK"
+    write_log "$TEXT_ALL_OK ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
+    write_state success "$TEXT_ALL_OK ($TEXT_TARGET_SLOT_LABEL: $target_slot)"
   fi
 }
 
@@ -635,7 +646,9 @@ run_patch() {
   trap cleanup_lock EXIT INT TERM HUP
   : > "$LOG_FILE"
 
-  write_state running "$TEXT_PATCH_START"
+  current_slot=$(detect_current_slot)
+  [ -z "$current_slot" ] && { write_log "$TEXT_NO_SLOT"; write_state error "$TEXT_NO_SLOT"; exit 1; }
+  write_state running "$TEXT_PATCH_START ($TEXT_CURRENT_SLOT_LABEL: $current_slot)"
 
   exec_patch_by_args "$arg_str"
   res=$?
@@ -648,8 +661,8 @@ run_patch() {
     exit 0
   fi
 
-    write_log "$TEXT_PATCH_DONE"
-  write_state success "$TEXT_PATCH_DONE"
+  write_log "$TEXT_PATCH_DONE ($TEXT_CURRENT_SLOT_LABEL: $current_slot)"
+  write_state success "$TEXT_PATCH_DONE ($TEXT_CURRENT_SLOT_LABEL: $current_slot)"
   exit 0
 }
 
@@ -714,10 +727,9 @@ set_language() {
       ;;
     *) return 1 ;;
   esac
-  printf '%s\n' "$1" > "$MODDIR/lang.txt" || return 1
+  ksud module config set user_lang "$1" >/dev/null 2>&1 || return 1
   sed -i "s|^name=.*|name=$_language_name|" "$MODDIR/module.prop" || return 1
   sed -i "s|^description=.*|description=$_language_description|" "$MODDIR/module.prop" || return 1
-  ksud module config set user_lang "$1" >/dev/null 2>&1 || true
   emit "LANG=$1"
 }
 
