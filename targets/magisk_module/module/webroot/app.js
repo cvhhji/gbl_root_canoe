@@ -466,7 +466,6 @@ function openConfirmModal(action) {
     const patchName = getSelectedPatchName();
     let msg = "";
 
-    // 仅修补模式：不更新efisp且勾选了修补
     if (!efisp && patchName) {
       msg = t.modalStep1PatchOnly(tar, patchName);
     } else if (dbg) {

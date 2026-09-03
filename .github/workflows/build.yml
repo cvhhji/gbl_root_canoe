@@ -12,6 +12,27 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Validate version
+      shell: bash
+      run: |
+        set -eu
+        . ./VERSION
+        [[ "$VERSION" =~ ^6\.2\.[0-9]+$ ]] || {
+          echo "Invalid VERSION: $VERSION"
+          exit 1
+        }
+        [ "$VERSION_CODE" = "${VERSION##*.}" ] || {
+          echo "VERSION_CODE must match the final VERSION component"
+          exit 1
+        }
+        previous_code=$(git show HEAD^:VERSION 2>/dev/null | sed -n 's/^VERSION_CODE=//p' || true)
+        if [ -n "$previous_code" ] && [ "$VERSION_CODE" -ne "$((previous_code + 1))" ]; then
+          echo "VERSION_CODE must increase by exactly one for every new build"
+          exit 1
+        fi
 
     - name: Validate module scripts
       run: |
@@ -38,6 +59,9 @@ jobs:
     - name: Build Magisk Module
       run: |
         make target_magisk_module
+        . ./VERSION
+        grep -qx "version=$VERSION" targets/magisk_module/build/module/module.prop
+        grep -qx "versionCode=$VERSION_CODE" targets/magisk_module/build/module/module.prop
 
     - name: Build VBMeta Fixer
       run: |

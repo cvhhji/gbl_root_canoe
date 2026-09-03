@@ -380,7 +380,6 @@ print_status() {
   emit "$out"
 }
 
-# 返回值：0=成功 1=失败/互斥错误 2=未选择任何修补项
 exec_patch_by_args() {
   arg_str="$1"
   slot_override="$2"
@@ -470,7 +469,6 @@ run_flash() {
   mode_full="$1"
   debug=no
 
-  # ========== 修复1：改用 shell 参数扩展解析，兼容所有 Android 环境 ==========
   case "$mode_full" in
     *,*)
       base_mode="${mode_full%%,*}"
@@ -512,7 +510,6 @@ run_flash() {
   [ -z "$current_slot" ] && { write_state error "$TEXT_NO_SLOT"; exit 1; }
   [ -z "$target_slot" ] && { write_state error "$TEXT_NO_TARGET_SLOT"; exit 1; }
 
-  # skip-efisp 模式：仅修补分区，不碰 ABL/efisp
   if [ "$base_mode" = "skip-efisp" ]; then
     write_state running "$TEXT_PATCH_ONLY"
     write_log "$TEXT_PATCH_ONLY"
@@ -536,7 +533,6 @@ run_flash() {
     exit 0
   fi
 
-  # update-efisp 模式：刷 ABL + 更新 efisp + 可选修补
   write_state running "$TEXT_FLASHING $target_slot"
   abl=$(partition_path abl "$target_slot")
 
@@ -566,12 +562,10 @@ run_flash() {
     efisp_fail=1
     write_state running "$TEXT_EFISP_WARN"
   elif [ $res -eq 2 ]; then
-    # ========== 修复2：有漏洞仅跳过ABL刷写，继续执行修补 ==========
     skip_abl_flash=1
     write_log "$TEXT_GBL_VULN_SKIP"
   fi
 
-  # 刷写 ABL 到目标槽位（无漏洞时执行）
   if [ "$skip_abl_flash" != "1" ]; then
     for part in $IMAGE_NAMES; do
       dst=$(partition_path "$part" "$target_slot")
@@ -583,7 +577,6 @@ run_flash() {
     done
   fi
 
-  # 执行目标槽位修补
   patch_fail=0
   if [ -n "$patch_args" ]; then
     write_log "$TEXT_PATCH_START (target slot)"
@@ -594,7 +587,6 @@ run_flash() {
     fi
   fi
 
-  # 最终状态判定
   if [ $efisp_fail -eq 1 ] || [ $patch_fail -eq 1 ]; then
     write_log "BL done, partial failed"
     write_state warning "BL done, partial failed"

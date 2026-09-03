@@ -350,7 +350,6 @@ SfbShowEnteringMenu (VOID);
  *
  * When ClearScreen is TRUE the console is cleared first (menu launch); when
  * FALSE the current screen is left as-is (unattended default boot).
- * FilePath is used to judge whether to hide the text for boot.efi.
  */
 VOID
 SfbShowBootingScreen (IN CONST CHAR16 *Name,

@@ -3,6 +3,10 @@ clean:
 copy_resources:
 	mkdir -p build/module
 	cp -r module/* build/module/
+	set -a; . ../../VERSION; set +a; \
+		sed -e "s/@VERSION@/$$VERSION/" -e "s/@VERSION_CODE@/$$VERSION_CODE/" \
+		module/module.prop.in > build/module/module.prop
+	rm build/module/module.prop.in
 	[ -d ../../ablrepo ] && cp -r ../../ablrepo ./build/module/ablrepo || true
 submodule_uefi: copy_resources
 	cd ../../submodules/uefi && make build && make tools
@@ -20,5 +24,4 @@ submodule_magisk_tools: copy_resources
 	cd ../../submodules/magisk_tools && make build_android
 	cp ../../submodules/magisk_tools/build/patch_tools ./build/module/bin/patch_tools
 build: submodule_uefi submodule_patcher submodule_ablfvextractor submodule_magisk_tools
-	# zip
 	cd build/module && zip -r ../module_android.zip ./

@@ -159,7 +159,6 @@ set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644
 set_perm "$MODPATH/module.prop" 0 0 0644
 set_perm "$MODPATH/customize.sh" 0 0 0755
 
-# ========== 修改1：槽位检测函数前移，提前定义 ==========
 detect_current_slot() {
   case "$(getprop ro.boot.slot_suffix 2>/dev/null)" in
     _a) echo _a ;;
@@ -199,15 +198,13 @@ while true; do
   fi
 done
 
-# ========== 修改2：执行修补前获取当前槽位，提取a/b字母 ==========
 current_slot_suffix=$(detect_current_slot)
 if [ -z "$current_slot_suffix" ]; then
   ui_print "$T_NO_SLOT"
   abort "slot detection failed"
 fi
-slot_letter=${current_slot_suffix#_}  # 去掉下划线前缀，得到纯字母 a 或 b
+slot_letter=${current_slot_suffix#_}
 
-# 调用bin目录下二进制，传入当前槽位参数
 if [ "$EXTRA_PATCH_MODE" = "vendor_boot" ]; then
   ui_print "$T_OPT_RUN_VB"
   ui_print "- 当前槽位: $slot_letter"
@@ -246,7 +243,6 @@ EFISP_DIR=$PERSIST_MNT/efisp
 ABLREPO_URL="https://raw.githubusercontent.com/superturtlee/gbl_root_canoe/main/ablrepo"
 mkdir -p "$RUNTIME_DIR"
 
-# Verify $1 against the sha256 in $2 (first whitespace‑delimited token).
 verify_sha256() {
   [ -f "$1" ] && [ -f "$2" ] || return 1
   expected=$(cut -d' ' -f1 "$2" | tr -d '[:space:]')
@@ -254,7 +250,6 @@ verify_sha256() {
   [ -n "$expected" ] && [ "$expected" = "$actual" ]
 }
 
-# Download $1 into $2 using whichever fetcher is available.
 download_url() {
   if command -v wget >/dev/null 2>&1; then
     timeout 60 wget -O "$2" "$1" >/dev/null 2>&1
@@ -265,9 +260,6 @@ download_url() {
   fi
 }
 
-# Fetch an older ABL with the GBL vulnerability. Looks up the local module
-# bundle first, then the cloud. On success, leaves the image at
-# $RUNTIME_DIR/repo_abl.img and returns 0; otherwise returns 1.
 fetch_abl_from_repo() {
   product=$(getprop ro.product.name 2>/dev/null)
   [ -z "$product" ] && return 1
@@ -340,11 +332,6 @@ while true; do
         ui_print "$T_ABLREPO_FAIL"
         abort "abl repo lookup failed"
       fi
-      # Downgrade ONLY the abl partition so it has the vuln to load BDS. Do NOT
-      # rebuild boot.efi from this image: some systems need the high‑version
-      # LinuxLoader from the current partition to boot, so boot.efi (already
-      # built above from the running ABL) stays untouched. The repo ABL is
-      # trusted to carry the vuln.
       ui_print "$T_ABLREPO_DOWNGRADE"
       if ! blockdev --setrw "$abl_part" >> "$RUNTIME_DIR/flash.log" 2>&1; then
         ui_print "$T_ABL_SETRW_FAIL"
@@ -393,7 +380,4 @@ while true; do
   fi
 done
 
-# ablrepo is bundled only for install‑time ABL downgrade lookup. Remove it so
-# the device‑side module dir (/data/adb/modules/fake_bl_efisp) stays lean after
-# installation; the cloud URL remains available for later re‑downloads.
 rm -rf "$MODPATH/ablrepo"

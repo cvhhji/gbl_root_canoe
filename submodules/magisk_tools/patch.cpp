@@ -1,6 +1,3 @@
-// 从 Magisk v28.1 magiskboot 扩展的 vendor_boot 修补逻辑
-// 集成进 magiskboot，直接调用 unpack/repack API + rust::cpio_commands，
-// 不依赖外部 mboot 二进制。支持 vendor_boot header v4（vendor_ramdisk）。
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
