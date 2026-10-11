@@ -88,7 +88,7 @@ extern EFI_USB_DEVICE_QUALIFIER_DESCRIPTOR DeviceQualifier;
 /* Fastboot String descriptors */
 extern EFI_USB_STRING_DESCRIPTOR *StrDescriptors[5];
 
-VOID
+EFI_STATUS
 BuildDefaultDescriptors (OUT USB_DEVICE_DESCRIPTOR **DevDesc,
                          OUT VOID **Descriptors,
                          OUT USB_DEVICE_DESCRIPTOR **SSDevDesc,

@@ -206,7 +206,11 @@ STATIC EFI_STATUS FastbootUsbDeviceStart (VOID)
   }
 
   /* Build the descriptor for fastboot */
-  BuildDefaultDescriptors (&DevDesc, &Descriptors, &SSDevDesc, &SSDescriptors);
+  Status = BuildDefaultDescriptors (&DevDesc, &Descriptors, &SSDevDesc, &SSDescriptors);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((EFI_D_ERROR, "Fastboot USB identity or descriptors unavailable: %r\n", Status));
+    return Status;
+  }
   UsbSpeedDataSize = sizeof (UsbMaxSupportSpeed);
   Status = gRT->GetVariable ((CHAR16 *)L"UsbfnMaxSpeed",
                              &gQcomTokenSpaceGuid,
@@ -406,13 +410,27 @@ VOID ShutdownDevice (VOID);
  * header is deliberately not pulled in here just for these constants. */
 #define NORMAL_MODE  0x0
 
-#define FB_ACTION_ROWS  2
+#define FB_ACTION_ROWS  3
 
 STATIC CONST CHAR16 *mFbActionRow[FB_ACTION_ROWS] = {
   L"Power Off",
   L"Restart",
+  L"Exit to menu",
 };
 STATIC UINTN mFbActionCursor = 0;
+
+/*
+ * Set by the exit-to-menu command; the fastboot event loop observes it, tears
+ * the gadget down through the ordinary exit path and returns to its caller,
+ * which is the boot menu.
+ */
+STATIC BOOLEAN mFbExitToMenu = FALSE;
+
+VOID
+FastbootRequestExitToMenu (VOID)
+{
+  mFbExitToMenu = TRUE;
+}
 
 #define FB_ATTR_NORMAL    EFI_TEXT_ATTR (EFI_LIGHTGRAY, EFI_BLACK)
 #define FB_ATTR_SELECTED  EFI_TEXT_ATTR (EFI_BLACK, EFI_LIGHTGRAY)
@@ -421,7 +439,8 @@ STATIC UINTN mFbActionCursor = 0;
 typedef enum {
   FbActionNone = 0,
   FbActionPowerOff,
-  FbActionRestart
+  FbActionRestart,
+  FbActionExitMenu
 } FB_ACTION;
 
 STATIC
@@ -498,7 +517,14 @@ FastbootPollActionKey (VOID)
     return FbActionNone;
   }
 
-  return (mFbActionCursor == 0) ? FbActionPowerOff : FbActionRestart;
+  switch (mFbActionCursor) {
+  case 0:
+    return FbActionPowerOff;
+  case 1:
+    return FbActionRestart;
+  default:
+    return FbActionExitMenu;
+  }
 }
 
 EFI_STATUS FastbootInitialize (VOID)
@@ -534,6 +560,13 @@ EFI_STATUS FastbootInitialize (VOID)
       break;
     }
 
+    /* The host asked for the menu back; take the ordinary exit path below. */
+    if (mFbExitToMenu) {
+      mFbExitToMenu = FALSE;
+      FastbootShowActionScreen (L"Returning to Boot Menu...");
+      break;
+    }
+
     switch (FastbootPollActionKey ()) {
     case FbActionPowerOff:
       FastbootShowActionScreen (L"Powering off...");
@@ -544,6 +577,13 @@ EFI_STATUS FastbootInitialize (VOID)
       FastbootShowActionScreen (L"Restarting...");
       RebootDevice (NORMAL_MODE);
       return EFI_SUCCESS;
+
+    case FbActionExitMenu:
+      FastbootShowActionScreen (L"Returning to Boot Menu...");
+      /* The switch's own break only leaves this case; the flag is what takes
+       * the while (1) below through its ordinary exit path. */
+      mFbExitToMenu = TRUE;
+      break;
 
     default:
       break;

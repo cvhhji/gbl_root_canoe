@@ -95,7 +95,7 @@ Ext4Open (
   Partition = Current->Partition;
   Level     = 0;
 
-  DEBUG ((EFI_D_INFO, "[ext4] Ext4Open %s\n", FileName));
+  DEBUG ((EFI_D_VERBOSE, "[ext4] Ext4Open %s\n", FileName));
   // If the path starts with a backslash, we treat the root directory as the base directory
   if(FileName[0] == L'\\') {
     FileName++;
@@ -124,7 +124,7 @@ Ext4Open (
 
     FileName += Length;
 
-    DEBUG ((EFI_D_INFO, "[ext4] Opening %s\n", PathSegment));
+    DEBUG ((EFI_D_VERBOSE, "[ext4] Opening %s\n", PathSegment));
 
     // TODO: We should look at the execute bit for permission checking on directory lookups
     // ^^ This would require a better knowledge of the path itself since we would need to know whether or not
@@ -177,8 +177,7 @@ Ext4Open (
 
   *NewHandle = &Current->Protocol;
 
-  DEBUG ((EFI_D_INFO, "Open successful\n"));
-  DEBUG ((EFI_D_INFO, "Opened filename %s\n", Current->FileName));
+  DEBUG ((EFI_D_VERBOSE, "Open successful: %s\n", Current->FileName));
   return EFI_SUCCESS;
 }
 
@@ -206,7 +205,8 @@ Ext4CloseInternal (
     return EFI_SUCCESS;
   }
 
-  DEBUG ((EFI_D_INFO, "[ext4] Closed file %p (inode %lu)\n", File, File->InodeNum));
+  DEBUG ((EFI_D_VERBOSE, "[ext4] Closed file %p (inode %lu)\n",
+          File, File->InodeNum));
   FreePool (File->FileName);
   FreePool (File->Inode);
   Ext4FreeExtentsMap (File);
@@ -249,12 +249,12 @@ Ext4ReadFile (
 
     return Status;
   } else if(Ext4FileIsDir (File)) {
-    DEBUG ((EFI_D_WARN, "[ext4] ReadDir not implemented\n"));
+    DEBUG ((EFI_D_VERBOSE, "[ext4] Reading directory\n"));
     Status = Ext4ReadDir (Partition, File, Buffer, File->Position, BufferSize);
-    DEBUG ((EFI_D_INFO, "[ext4] ReadDir status %lx\n", Status));
+    DEBUG ((EFI_D_VERBOSE, "[ext4] ReadDir status %r\n", Status));
 
     if(Status == EFI_SUCCESS) {
-      DEBUG ((EFI_D_INFO, "[ext4] ReadDir retlen %lu\n", *BufferSize));
+      DEBUG ((EFI_D_VERBOSE, "[ext4] ReadDir retlen %lu\n", *BufferSize));
     }
 
     return Status;

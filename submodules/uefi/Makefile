@@ -1,9 +1,16 @@
+.PHONY: clean build tools tools-clean
+
 clean:
 	rm -rf edk2/Build || true
 	rm -rf edk2/Conf || true
 	rm -rf ./build || true
 build:
 	cp -r ./Conf ./edk2/
+	# This vendor EDK2 build has reused objects after included headers changed
+	# (stale limits survive header updates). A fresh final EFI alone does not
+	# prove fresh code: rebuild the full BDS output tree.
+	rm -rf edk2/Build/RELEASE_CLANG35
+	rm -f ./build/BDS.efi
 	bash -c 'cd edk2 && . ./edksetup.sh && make BOARD_BOOTLOADER_PRODUCT_NAME=canoe TARGET_ARCHITECTURE=AARCH64 TARGET=RELEASE \
   		CLANG_BIN=/usr/bin/ CLANG_PREFIX=aarch64-linux-gnu- VERIFIED_BOOT_ENABLED=1 \
   		VERIFIED_BOOT_LE=0 AB_RETRYCOUNT_DISABLE=0 TARGET_BOARD_TYPE_AUTO=0 \
@@ -26,6 +33,8 @@ build:
 # CLANG35 toolchain and BaseTools resolve identically.
 tools:
 	cp -r ./Conf ./edk2/ 2>/dev/null || true
+	# Remove all standalone-tool outputs so EDK2 cannot reuse a stale artifact.
+	rm -rf edk2/Build/AndroidToolsPkg
 	bash -c 'cd edk2 && . ./edksetup.sh && make tools BOARD_BOOTLOADER_PRODUCT_NAME=canoe TARGET_ARCHITECTURE=AARCH64 TARGET=RELEASE \
   		CLANG_BIN=/usr/bin/ CLANG_PREFIX=aarch64-linux-gnu- VERIFIED_BOOT_ENABLED=1 \
   		VERIFIED_BOOT_LE=0 AB_RETRYCOUNT_DISABLE=0 TARGET_BOARD_TYPE_AUTO=0 \

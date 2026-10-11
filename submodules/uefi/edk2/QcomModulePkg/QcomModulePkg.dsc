@@ -120,7 +120,11 @@
   GCC:*_*_*_ARCHCC_FLAGS  = -Wno-shift-negative-value -fstack-protector-all -Wno-varargs -fno-common -Wno-misleading-indentation -Wno-unknown-warning-option
   GCC:*_*_*_DLINK_FLAGS = -Wl,-Ttext=0x0
   GCC:*_*_*_CC_FLAGS = -DZ_SOLO
-  GCC:*_*_*_CC_FLAGS = -DPRODUCT_NAME=\"$(BOARD_BOOTLOADER_PRODUCT_NAME)\"
+  # Single quotes, not backslash quotes: the CC_RESP aggregation rewrites
+  # backslashes to forward slashes, which delivered /"canoe/" to the compiler
+  # - a token sequence, not a string literal - and broke every consumer of
+  # this macro on the next full rebuild.
+  GCC:*_*_*_CC_FLAGS = -DPRODUCT_NAME='"$(BOARD_BOOTLOADER_PRODUCT_NAME)"'
 
   GCC:*_*_*_DLINK_FLAGS = $(CLANG_EXTRA_DLINK_FLAGS)
   !ifdef $(TARGET_AUDIO_FRAMEWORK)

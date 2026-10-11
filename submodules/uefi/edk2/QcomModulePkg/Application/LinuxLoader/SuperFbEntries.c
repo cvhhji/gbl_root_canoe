@@ -18,6 +18,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PrintLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Protocol/LoadedImage.h>
 #include <Library/UefiLib.h>
 #include <Protocol/Security.h>
 #include <Protocol/Security2.h>
@@ -159,6 +160,11 @@ SfbSaveEntryRecord (IN UINTN Slot, IN CONST SFB_BOOT_ENTRY *Entry)
   SfbAppendAscii (Record, sizeof (Record), Entry->Path);
   SfbAppendSeparator (Record, sizeof (Record));
   SfbAppendAscii (Record, sizeof (Record), Entry->Desc);
+  /* Fifth field, absent in old records: the launch argument line. */
+  if (Entry->Args[0] != L'\0') {
+    SfbAppendSeparator (Record, sizeof (Record));
+    SfbAppendAscii (Record, sizeof (Record), Entry->Args);
+  }
 
   DEBUG ((EFI_D_INFO, "SFB: store slot %u <- '%a'\n", (UINT32)Slot, Record));
 
@@ -176,6 +182,7 @@ EFI_STATUS
 SfbResolveRecord (IN CONST CHAR16    *WantLabel,
                   IN CONST CHAR16    *Path,
                   IN CONST CHAR16    *Desc,
+                  IN CONST CHAR16    *Args,
                   OUT SFB_BOOT_ENTRY *Entry)
 {
   EFI_STATUS  Status;
@@ -233,6 +240,9 @@ SfbResolveRecord (IN CONST CHAR16    *WantLabel,
   if (WantLabel[0] != L'\0') {
     StrnCpyS (Entry->VolLabel, SFB_DESC_CHARS, WantLabel, SFB_DESC_CHARS - 1);
   }
+  if (Args != NULL) {
+    StrnCpyS (Entry->Args, SFB_ARGS_CHARS, Args, SFB_ARGS_CHARS - 1);
+  }
 
   return EFI_SUCCESS;
 }
@@ -248,8 +258,10 @@ SfbLoadEntryRecord (IN UINTN Slot, OUT SFB_BOOT_ENTRY *Entry)
   CHAR16       Label[SFB_DESC_CHARS];
   CHAR16       Path[SFB_PATH_CHARS];
   CHAR16       Desc[SFB_DESC_CHARS];
+  CHAR16       Args[SFB_ARGS_CHARS];
 
   ZeroMem (Entry, sizeof (*Entry));
+  Args[0] = L'\0';
 
   Status = SfbStoreRead (Slot, Record, sizeof (Record));
   if (EFI_ERROR (Status)) {
@@ -268,7 +280,9 @@ SfbLoadEntryRecord (IN UINTN Slot, OUT SFB_BOOT_ENTRY *Entry)
 
   Cursor = SfbTakeField (Cursor, Label, SFB_DESC_CHARS);
   Cursor = SfbTakeField (Cursor, Path, SFB_PATH_CHARS);
-  SfbTakeField (Cursor, Desc, SFB_DESC_CHARS);
+  Cursor = SfbTakeField (Cursor, Desc, SFB_DESC_CHARS);
+  /* Optional fifth field: the launch argument line, absent in old records. */
+  SfbTakeField (Cursor, Args, SFB_ARGS_CHARS);
 
   /* A path has to be absolute; anything else would be interpreted relative to
    * the volume root by Open () and is more likely corruption than intent. */
@@ -277,7 +291,7 @@ SfbLoadEntryRecord (IN UINTN Slot, OUT SFB_BOOT_ENTRY *Entry)
     return EFI_VOLUME_CORRUPTED;
   }
 
-  return SfbResolveRecord (Label, Path, Desc, Entry);
+  return SfbResolveRecord (Label, Path, Desc, Args, Entry);
 }
 
 EFI_STATUS
@@ -421,9 +435,15 @@ SfbAsciiRelPathToUnicode (IN CONST CHAR8 *Rel, OUT CHAR16 *Out, IN UINTN OutChar
 }
 
 /*
- * Parse one BOOTENTRIES line "<name>:<root-relative path>" into a description
- * and an absolute volume path. Returns FALSE for blank/comment lines, a missing
- * separator, an empty name or an empty path.
+ * Parse one BOOTENTRIES line "<name>:<root-relative path> [args...]" into a
+ * description, an absolute volume path and an optional argument line. Returns
+ * FALSE for blank/comment lines, a missing separator, an empty name or an
+ * empty path.
+ *
+ * Anything after the first whitespace that follows the path is the entry's
+ * argument line, carried to the launched image as its LoadOptions the way the
+ * EDK2 shell passes a command line (e.g. "--dtb boot.dtb --initrd initrd").
+ * The path itself may not contain spaces, which it never could here anyway.
  *
  * A leading '$' on the name marks a "no default" entry: *NoDefault is set TRUE
  * and the marker is stripped from the returned name, so "$Tools:tools.efi" is
@@ -433,7 +453,7 @@ SfbAsciiRelPathToUnicode (IN CONST CHAR8 *Rel, OUT CHAR16 *Out, IN UINTN OutChar
  * the path names another ENTRIES file (same format, paths still relative to the
  * boot root) to open when the row is selected. The '%' and '$' markers are
  * mutually exclusive: a submenu row is never a launch target, so "no default"
- * does not apply to it.
+ * does not apply to it and its argument line, if any, is ignored.
  */
 STATIC
 BOOLEAN
@@ -442,11 +462,16 @@ SfbParseBootEntryLine (IN CONST CHAR8 *Line,
                        IN UINTN       NameChars,
                        OUT CHAR16     *Path,
                        IN UINTN       PathChars,
+                       OUT CHAR16     *Args,
+                       IN UINTN       ArgsChars,
                        OUT BOOLEAN    *NoDefault,
                        OUT BOOLEAN    *IsSubmenu)
 {
   CONST CHAR8  *Colon = NULL;
   CONST CHAR8  *Ptr;
+  CONST CHAR8  *PathStart;
+  CONST CHAR8  *PathEnd;
+  CHAR8        RelPath[SFB_PATH_CHARS];
   UINTN        Count = 0;
 
   if (NoDefault != NULL) {
@@ -454,6 +479,9 @@ SfbParseBootEntryLine (IN CONST CHAR8 *Line,
   }
   if (IsSubmenu != NULL) {
     *IsSubmenu = FALSE;
+  }
+  if (Args != NULL && ArgsChars > 0) {
+    Args[0] = L'\0';
   }
 
   while (*Line == ' ' || *Line == '\t') {
@@ -499,7 +527,51 @@ SfbParseBootEntryLine (IN CONST CHAR8 *Line,
     return FALSE;
   }
 
-  return SfbAsciiRelPathToUnicode (Colon + 1, Path, PathChars);
+  /* Path runs from the colon to the first whitespace; the rest is args. */
+  PathStart = Colon + 1;
+  while (*PathStart == ' ' || *PathStart == '\t') {
+    PathStart++;
+  }
+  PathEnd = PathStart;
+  while (*PathEnd != '\0' && *PathEnd != ' ' && *PathEnd != '\t') {
+    PathEnd++;
+  }
+
+  Count = 0;
+  for (Ptr = PathStart; Ptr < PathEnd && Count + 1 < sizeof (RelPath); Ptr++) {
+    RelPath[Count++] = *Ptr;
+  }
+  RelPath[Count] = '\0';
+
+  if (!SfbAsciiRelPathToUnicode (RelPath, Path, PathChars)) {
+    return FALSE;
+  }
+
+  if (Args != NULL && ArgsChars > 0 &&
+      (IsSubmenu == NULL || !*IsSubmenu)) {
+    CONST CHAR8  *ArgsStart = PathEnd;
+
+    while (*ArgsStart == ' ' || *ArgsStart == '\t') {
+      ArgsStart++;
+    }
+
+    Count = 0;
+    for (Ptr = ArgsStart; *Ptr != '\0' && Count + 1 < ArgsChars; Ptr++) {
+      CHAR8  Ch = *Ptr;
+
+      if ((UINT8)Ch < 0x20 || (UINT8)Ch > 0x7e) {
+        continue;
+      }
+      Args[Count++] = (CHAR16)Ch;
+    }
+    /* Trim trailing blanks only; internal spacing is the operator's wording. */
+    while (Count > 0 && Args[Count - 1] == L' ') {
+      Count--;
+    }
+    Args[Count] = L'\0';
+  }
+
+  return TRUE;
 }
 
 /*
@@ -560,6 +632,7 @@ SfbAppendEntriesFile (IN OUT SFB_MENU_STATE *Menu,
     CHAR16          Name[SFB_DESC_CHARS];
     CHAR16          RelPath[SFB_PATH_CHARS];
     CHAR16          Path[SFB_PATH_CHARS];
+    CHAR16          Args[SFB_ARGS_CHARS];
     SFB_BOOT_ENTRY  *Slot;
     UINTN           Index;
     BOOLEAN         Duplicate = FALSE;
@@ -572,7 +645,8 @@ SfbAppendEntriesFile (IN OUT SFB_MENU_STATE *Menu,
     }
 
     if (!SfbParseBootEntryLine (Line, Name, SFB_DESC_CHARS, RelPath,
-                                SFB_PATH_CHARS, &NoDefault, &IsSubmenu)) {
+                                SFB_PATH_CHARS, Args, SFB_ARGS_CHARS,
+                                &NoDefault, &IsSubmenu)) {
       continue;
     }
 
@@ -604,6 +678,7 @@ SfbAppendEntriesFile (IN OUT SFB_MENU_STATE *Menu,
       continue;
     }
     Slot->NoDefault = NoDefault;
+    StrnCpyS (Slot->Args, SFB_ARGS_CHARS, Args, SFB_ARGS_CHARS - 1);
 
     for (Index = 0; Index < Menu->Count; Index++) {
       if (SfbSameDevicePath (Menu->Entry[Index].DevicePath, Slot->DevicePath)) {
@@ -790,8 +865,7 @@ SfbBuildMenu (OUT SFB_MENU_STATE *Menu)
   SfbScanVolumes (Menu);
   SfbAppendCustomEntry (Menu);
 
-  SfbAppendBuiltIn (Menu, SfbEntryFastboot, L"Enter Fastboot");
-  SfbAppendBuiltIn (Menu, SfbEntrySelector, L"Enter EFI Program Selector");
+  SfbAppendBuiltIn (Menu, SfbEntryAdvanced, L"Advanced");
   SfbAppendBuiltIn (Menu, SfbEntryPowerOff, L"Power Off");
   SfbAppendBuiltIn (Menu, SfbEntryRestart, L"Restart");
 
@@ -1088,6 +1162,28 @@ SfbLaunchEntry (IN CONST SFB_BOOT_ENTRY *Entry,
     DEBUG ((EFI_D_ERROR, "SFB: LoadImage '%s' failed: %r\n",
             Entry->Path, Status));
     return Status;
+  }
+
+  /*
+   * Carry the entry's argument line to the image the way the EDK2 shell
+   * carries a command line: LoadOptions holds the arguments, NUL terminated,
+   * without the image name. An image that wants them reads LoadOptions off
+   * its own EFI_LOADED_IMAGE_PROTOCOL.
+   */
+  if (Entry->Args[0] != L'\0') {
+    EFI_LOADED_IMAGE_PROTOCOL  *Loaded = NULL;
+
+    if (!EFI_ERROR (gBS->OpenProtocol (ImageHandle,
+                                       &gEfiLoadedImageProtocolGuid,
+                                       (VOID **)&Loaded,
+                                       gImageHandle, NULL,
+                                       EFI_OPEN_PROTOCOL_GET_PROTOCOL))) {
+      Loaded->LoadOptions = (VOID *)(UINTN)Entry->Args;
+      Loaded->LoadOptionsSize =
+        (UINT32)((StrLen (Entry->Args) + 1) * sizeof (CHAR16));
+      DEBUG ((EFI_D_INFO, "SFB: passing args '%s' to '%s'\n",
+              Entry->Args, Entry->Path));
+    }
   }
 
   Status = gBS->StartImage (ImageHandle, &ExitDataSize, &ExitData);

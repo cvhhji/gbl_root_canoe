@@ -134,7 +134,8 @@ Ext4OpenSuperblock (
   // accidentally opening an ext2/3/4 filesystem we don't understand, which would be disasterous.
 
   if (Partition->FeaturesIncompat & ~gSupportedIncompatFeat) {
-    DEBUG ((EFI_D_INFO, "[Ext4] Unsupported %lx\n", Partition->FeaturesIncompat & ~gSupportedIncompatFeat));
+    DEBUG ((EFI_D_WARN, "[Ext4] Unsupported incompat features %lx\n",
+            Partition->FeaturesIncompat & ~gSupportedIncompatFeat));
     return EFI_UNSUPPORTED;
   }
 
@@ -158,13 +159,14 @@ Ext4OpenSuperblock (
   UnsupportedRoCompat = Partition->FeaturesRoCompat & ~gSupportedRoCompatFeat;
 
   if (UnsupportedRoCompat != 0) {
-    DEBUG ((EFI_D_INFO, "[Ext4] Unsupported ro compat %x\n", UnsupportedRoCompat));
+    DEBUG ((EFI_D_WARN, "[Ext4] Unsupported ro compat features %x\n",
+            UnsupportedRoCompat));
     Partition->ReadOnly = TRUE;
   }
 
   (VOID)gSupportedCompatFeat;
 
-  DEBUG ((EFI_D_INFO, "Read only = %u\n", Partition->ReadOnly));
+  DEBUG ((EFI_D_VERBOSE, "[ext4] Read only = %u\n", Partition->ReadOnly));
 
   Partition->BlockSize = 1024 << Sb->s_log_block_size;
 
@@ -188,7 +190,7 @@ Ext4OpenSuperblock (
                                    );
 
   DEBUG ((
-    EFI_D_INFO,
+    EFI_D_VERBOSE,
     "[ext4] Number of blocks = %lu\n[ext4] Number of block groups: %lu\n",
     Partition->NumberBlocks,
     Partition->NumberBlockGroups
@@ -228,10 +230,12 @@ Ext4OpenSuperblock (
 
   for (Index = 0; Index < Partition->NumberBlockGroups; Index++) {
     EXT4_BLOCK_GROUP_DESC  *Desc;
-    
+
     Desc = Ext4GetBlockGroupDesc (Partition, Index);
     if (!Ext4VerifyBlockGroupDescChecksum (Partition, Desc, Index)) {
-      DEBUG ((EFI_D_INFO, "[ext4] Block group descriptor %u has an invalid checksum\n", Index));
+      DEBUG ((EFI_D_ERROR,
+              "[ext4] Block group descriptor %u has an invalid checksum\n",
+              Index));
       return EFI_VOLUME_CORRUPTED;
     }
   }
@@ -239,7 +243,7 @@ Ext4OpenSuperblock (
   // Note that the cast below is completely safe, because EXT4_FILE is a specialisation of EFI_FILE_PROTOCOL
   Status = Ext4OpenVolume (&Partition->Interface, (EFI_FILE_PROTOCOL **)&Partition->Root);
 
-  DEBUG ((EFI_D_INFO, "[ext4] Root File %p\n", Partition->Root));
+  DEBUG ((EFI_D_VERBOSE, "[ext4] Root File %p\n", Partition->Root));
   return Status;
 }
 

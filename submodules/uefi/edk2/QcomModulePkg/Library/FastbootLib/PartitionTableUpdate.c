@@ -282,7 +282,7 @@ UINT64 GetPartitionSize (EFI_BLOCK_IO_PROTOCOL *BlockIo)
   return  PartitionSize;
 }
 
-VOID UpdatePartitionAttributes (UINT32 UpdateType)
+EFI_STATUS UpdatePartitionAttributes (UINT32 UpdateType)
 {
   UINT32 BlkSz;
   UINT8 *GptHdr = NULL;
@@ -299,7 +299,7 @@ VOID UpdatePartitionAttributes (UINT32 UpdateType)
   UINT32 HdrSz = GPT_HEADER_SIZE;
   UINT64 DeviceDensity;
   UINT64 CardSizeSec;
-  EFI_STATUS Status;
+  EFI_STATUS Status = EFI_SUCCESS;
   INT32 Lun;
   EFI_BLOCK_IO_PROTOCOL *BlockIo = NULL;
   HandleInfo BlockIoHandle[MAX_HANDLEINF_LST_SIZE];
@@ -307,14 +307,25 @@ VOID UpdatePartitionAttributes (UINT32 UpdateType)
   CHAR8 BootDeviceType[BOOT_DEV_NAME_SIZE_MAX];
   UINT32 PartEntriesblocks = 0;
   BOOLEAN SkipUpdation;
+  BOOLEAN PendingGuidUpdates[MAX_NUM_PARTITIONS];
+  BOOLEAN PendingAttributeUpdates[MAX_NUM_PARTITIONS];
   UINT64 Attr;
   struct PartitionEntry *InMemPtnEnt;
+
+  /*
+   * Keep the snapshot unchanged until all GPT copies have been written and
+   * flushed. A failed copy must remain visible to this gate so a later
+   * attempt retries it. Track fields independently so unrelated in-memory
+   * changes are never absorbed into PtnEntriesBak.
+   */
+  gBS->SetMem (PendingGuidUpdates, sizeof (PendingGuidUpdates), 0);
+  gBS->SetMem (PendingAttributeUpdates, sizeof (PendingAttributeUpdates), 0);
 
   /* The PtnEntries is the same as PtnEntriesBak by default
    *  It needs to update attributes or GUID when PtnEntries is changed
    */
   if (!IsUpdatePartitionAttributes ()) {
-    return;
+    return EFI_SUCCESS;
   }
 
   GetRootDeviceType (BootDeviceType, BOOT_DEV_NAME_SIZE_MAX);
@@ -327,17 +338,17 @@ VOID UpdatePartitionAttributes (UINT32 UpdateType)
       Status = GetStorageHandle (Lun, BlockIoHandle, &MaxHandles);
     } else if (!AsciiStrnCmp (BootDeviceType, "NAND", AsciiStrLen ("NAND"))) {
       DEBUG ((EFI_D_ERROR, "Skip setting if boot device type is NAND\n"));
-      return;
+      return EFI_UNSUPPORTED;
     } else {
       DEBUG ((EFI_D_ERROR, "Unsupported  boot device type\n"));
-      return;
+      return EFI_UNSUPPORTED;
     }
 
     if (Status != EFI_SUCCESS) {
       DEBUG ((EFI_D_ERROR,
               "Failed to get BlkIo for device. MaxHandles:%d - %r\n",
               MaxHandles, Status));
-      return;
+      return Status;
     }
     if (MaxHandles != 1) {
       DEBUG ((EFI_D_VERBOSE,
@@ -349,7 +360,7 @@ VOID UpdatePartitionAttributes (UINT32 UpdateType)
     BlockIo = BlockIoHandle[0].BlkIo;
     DeviceDensity = GetPartitionSize (BlockIo);
     if (!DeviceDensity) {
-      return;
+      return EFI_BAD_BUFFER_SIZE;
     }
     BlkSz = BlockIo->Media->BlockSize;
     PartEntriesblocks = MAX_PARTITION_ENTRIES_SZ / BlkSz;
@@ -359,7 +370,7 @@ VOID UpdatePartitionAttributes (UINT32 UpdateType)
     GptHdr = AllocateZeroPool (MaxGptPartEntrySzBytes);
     if (!GptHdr) {
       DEBUG ((EFI_D_ERROR, "Unable to Allocate Memory for GptHdr \n"));
-      return;
+      return EFI_OUT_OF_RESOURCES;
     }
 
     GptHdrPtr = GptHdr;
@@ -414,11 +425,7 @@ VOID UpdatePartitionAttributes (UINT32 UpdateType)
             gBS->CopyMem ((VOID *)PtnEntriesPtr,
                           (VOID *)&PtnEntries[i].PartEntry.PartitionTypeGUID,
                           GUID_SIZE);
-            /* Update the PtnEntriesBak for next comparison */
-            gBS->CopyMem (
-                        (VOID *)&PtnEntriesBak[i].PartEntry.PartitionTypeGUID,
-                        (VOID *)&PtnEntries[i].PartEntry.PartitionTypeGUID,
-                        GUID_SIZE);
+            PendingGuidUpdates[i] = TRUE;
             SkipUpdation = FALSE;
           }
         }
@@ -435,9 +442,7 @@ VOID UpdatePartitionAttributes (UINT32 UpdateType)
               /* Update the partition attributes */
               PUT_LONG_LONG (&PtnEntriesPtr[ATTRIBUTE_FLAG_OFFSET],
                               PtnEntries[i].PartEntry.Attributes);
-              /* Update the PtnEntriesBak for next comparison */
-              PtnEntriesBak[i].PartEntry.Attributes =
-                              PtnEntries[i].PartEntry.Attributes;
+              PendingAttributeUpdates[i] = TRUE;
               SkipUpdation = FALSE;
             }
           } else {
@@ -463,6 +468,7 @@ VOID UpdatePartitionAttributes (UINT32 UpdateType)
         DEBUG ((EFI_D_ERROR,
                 "Invalid GPT header fields MaxPtnCount = %x, PtnEntrySz = %x\n",
                 MaxPtnCount, PtnEntrySz));
+        Status = EFI_BAD_BUFFER_SIZE;
         goto Exit;
       }
 
@@ -521,6 +527,21 @@ Exit:
     FreePool (GptHdrPtr);
     GptHdrPtr = NULL;
   }
+  if (Status == EFI_SUCCESS) {
+    for (i = 0; i < MAX_NUM_PARTITIONS; i++) {
+      if (PendingGuidUpdates[i]) {
+        gBS->CopyMem (
+            (VOID *)&PtnEntriesBak[i].PartEntry.PartitionTypeGUID,
+            (VOID *)&PtnEntries[i].PartEntry.PartitionTypeGUID,
+            GUID_SIZE);
+      }
+      if (PendingAttributeUpdates[i]) {
+        PtnEntriesBak[i].PartEntry.Attributes =
+            PtnEntries[i].PartEntry.Attributes;
+      }
+    }
+  }
+  return Status;
 }
 
 EFI_STATUS

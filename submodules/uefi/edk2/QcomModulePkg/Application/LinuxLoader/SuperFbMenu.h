@@ -13,6 +13,7 @@
 #define __SUPER_FB_MENU_H__
 
 #include <Uefi.h>
+#include <Protocol/BlockIo.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/SimpleFileSystem.h>
 
@@ -25,7 +26,7 @@
  * Optional file in a volume's root directory listing extra boot entries, one
  * per line:
  *
- *   <name>:<path relative to the boot root>
+ *   <name>:<path relative to the boot root> [args...]
  *   %<name>:<path to another ENTRIES file relative to the boot root>
  *
  * e.g. "MEMTEST:EFI/MEMTEST.EFI". Either '/' or '\' separates path components,
@@ -33,12 +34,17 @@
  * ignored. A '$' prefix on the name marks a "no default" entry. Entries here
  * are listed alongside the auto-discovered boot loader.
  *
+ * Anything after the first whitespace that follows the path is the entry's
+ * argument line (e.g. "MAINLINE:EFI/MAINLINE.EFI --dtb boot.dtb"); it is passed
+ * to the launched image as its LoadOptions the way the EDK2 shell passes a
+ * command line.
+ *
  * A line beginning with '%' names a submenu: the path points at another file in
  * the same BOOTENTRIES format whose entries are shown when the row is selected.
  * Paths inside that file are still relative to the boot root (the volume root
- * for FAT32, \efisp for ext4), not to the submenu file's own directory, and the
- * file may itself contain further '%' submenu rows, up to SFB_MAX_SUBMENU_DEPTH
- * levels deep.
+ * for FAT volumes, \efisp for ext4), not to the submenu file's own directory,
+ * and the file may itself contain further '%' submenu rows, up to
+ * SFB_MAX_SUBMENU_DEPTH levels deep.
  */
 #define SFB_BOOTENTRIES_PATH  L"\\BOOTENTRIES"
 
@@ -54,6 +60,8 @@
 
 #define SFB_DESC_CHARS       48
 #define SFB_PATH_CHARS       256
+/* Room for an EDK2-shell-style argument line, e.g. "--dtb boot.dtb". */
+#define SFB_ARGS_CHARS       128
 #define SFB_MAX_ENTRIES      24
 #define SFB_MAX_DIR_ENTRIES  128
 
@@ -71,8 +79,9 @@ typedef enum {
    * submenu. Volume/Path name the ENTRIES file; Desc is the submenu title. */
   SfbEntrySubmenu,
   /* Built-in entries; no backing file, handled in code. */
-  SfbEntryFastboot,
-  SfbEntrySelector,
+  /* Opens the Advanced submenu (fastboot, USB mass-storage export, grouped
+   * volumes). */
+  SfbEntryAdvanced,
   /* "Back" row at the foot of a submenu: returns to the parent menu. */
   SfbEntryBack,
   /* Power management actions offered at the end of the menu and on the
@@ -91,6 +100,12 @@ typedef struct {
   BOOLEAN                   NoDefault;
   CHAR16                    Desc[SFB_DESC_CHARS];
   CHAR16                    Path[SFB_PATH_CHARS];
+  /*
+   * Optional launch arguments from the BOOTENTRIES line, passed to the image
+   * as its LoadOptions the way the EDK2 shell passes a command line: space
+   * separated, NUL terminated, image name not included.
+   */
+  CHAR16                    Args[SFB_ARGS_CHARS];
   /* FAT volume label the entry lives on; how a stored entry finds its way
    * back to a volume after a reboot has renumbered the handles. */
   CHAR16                    VolLabel[SFB_DESC_CHARS];
@@ -131,22 +146,21 @@ EFI_STATUS
 SfbStartFatStack (VOID);
 
 /*
- * Snapshot of the boot volumes currently in the system: FAT32 volumes plus the
- * ext4 persist partition. *Handles must be released with FreePool ().
+ * *Handles must be released with FreePool ().
  *
- * Handles whose media is neither FAT32 nor ext4 are dropped: the menu and the
- * browser are specified in terms of those, and a platform's firmware may well
- * publish Simple File System over things this loader has no business writing
- * to or offering as boot media. An ext4 volume is also dropped unless it carries
- * a \efisp directory: that is its boot root, so without it there is nothing to
- * scan or browse, and the browser must not list it.
+ * The list serves the boot-entry scanner, so it is deliberately narrower than
+ * "anything with a file system": FAT volumes of any width (FAT12/16/32,
+ * including an efisp.fat blob mounted from the ext4 persist partition) are
+ * scanned at their root, and an ext4 volume is kept when it carries the
+ * legacy \efisp boot directory. The file browser builds its own list instead
+ * and lists every Simple File System it finds.
  */
 EFI_STATUS
 SfbLocateVolumes (OUT EFI_HANDLE **Handles, OUT UINTN *Count);
 
-/* TRUE when the volume handle's block device holds a FAT32 file system. */
+/* TRUE when the volume handle's block device holds a FAT12/16/32 volume. */
 BOOLEAN
-SfbIsFat32Volume (IN EFI_HANDLE Volume);
+SfbIsFatVolume (IN EFI_HANDLE Volume);
 
 /* TRUE when the volume handle's block device holds an ext4 file system. */
 BOOLEAN
@@ -210,6 +224,33 @@ VOID
 SfbGetVolumeLabel (IN EFI_FILE_PROTOCOL *Root,
                    OUT CHAR16           *Out,
                    IN UINTN             OutChars);
+
+/* ---- efisp.fat blob mounts (SuperFbFat.c) -------------------------------- */
+
+/* Number of efisp.fat blobs mounted so far this boot. */
+UINTN
+SfbFatBlobCount (VOID);
+
+/* The ext4 volume handle the blob at Index was mounted from. */
+EFI_HANDLE
+SfbFatBlobSource (IN UINTN Index);
+
+/*
+ * The published image disk at Index, or NULL while it is withdrawn for a raw
+ * USB export. The BlockIo stays owned by the mount.
+ */
+EFI_BLOCK_IO_PROTOCOL *
+SfbFatBlobDisk (IN UINTN Index);
+
+/* Withdraw the disk for an exclusive export session; Restore publishes it
+ * again and rebinds FAT when the session ends. ImageDisk returns the block
+ * device regardless of publish state, for the export session itself. */
+EFI_STATUS
+SfbFatBlobWithdraw (IN UINTN Index);
+EFI_STATUS
+SfbFatBlobRestore (IN UINTN Index);
+EFI_BLOCK_IO_PROTOCOL *
+SfbFatBlobImageDisk (IN UINTN Index);
 
 /* ---- SuperFbStore.c: settings kept in the tail of the ESP ---------------- */
 
@@ -328,6 +369,15 @@ VOID
 SfbRunFileBrowser (VOID);
 
 /*
+ * Browse one volume from an absolute path on it; VolumeLabel names the screen.
+ * Returns TRUE when the caller should unwind back to the boot menu.
+ */
+BOOLEAN
+SfbBrowseVolume (IN EFI_HANDLE   Volume,
+                 IN CONST CHAR16 *VolumeLabel,
+                 IN CONST CHAR16 *BrowseRoot);
+
+/*
  * Clear the console and announce fastboot. Called on the way out of the menu so
  * the last thing the menu drew does not stay on screen while fastboot waits for
  * a host that may take a while to show up.
@@ -355,6 +405,22 @@ VOID
 SfbShowBootingScreen (IN CONST CHAR16 *Name,
                       IN CONST CHAR16 *FilePath,
                       IN BOOLEAN       ClearScreen);
+
+/*
+ * Clear the console, show "Entering <What>", and hold for one second so a
+ * volume key held from the parent screen is released before the submenu starts
+ * taking input. The input buffer is drained afterwards so that held key does
+ * not leak in as a spurious keypress.
+ */
+VOID
+SfbShowEnteringScreen (IN CONST CHAR16 *What);
+
+/*
+ * Debounce a menu exit (Back): hold briefly and drain the input queue so the
+ * confirming key cannot act on the parent menu.
+ */
+VOID
+SfbDebounceMenuExit (VOID);
 
 /* Wait for a key. TimeoutMs of 0 waits indefinitely. */
 SFB_KEY

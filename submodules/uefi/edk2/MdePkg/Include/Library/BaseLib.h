@@ -5222,6 +5222,28 @@ CalculateCrc32(
   IN  UINTN                        Length
   );
 
+/**
+   Calculates the CRC16-ANSI checksum of the given buffer.
+
+   @param[in]      Buffer        Pointer to the buffer.
+   @param[in]      Length        Length of the buffer, in bytes.
+   @param[in]      InitialValue  Initial value of the CRC.
+
+   @return The CRC16-ANSI checksum.
+**/
+UINT16
+EFIAPI
+CalculateCrc16Ansi (
+  IN  CONST VOID  *Buffer,
+  IN  UINTN       Length,
+  IN  UINT16      InitialValue
+  );
+
+//
+// Initial value for the CRC16-ANSI algorithm, when no prior checksum has been calculated.
+//
+#define CRC16ANSI_INIT  0xffff
+
 //
 // Base Library CPU Functions
 //

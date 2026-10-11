@@ -247,7 +247,7 @@ BOOLEAN
 PartitionHasMultiSlot (CONST CHAR16 *Pname);
 EFI_STATUS EnumeratePartitions (VOID);
 VOID UpdatePartitionEntries (VOID);
-VOID UpdatePartitionAttributes (UINT32 UpdateType);
+EFI_STATUS UpdatePartitionAttributes (UINT32 UpdateType);
 VOID FindPtnActiveSlot (VOID);
 EFI_STATUS
 FindBootableSlot (Slot *BootableSlot);

@@ -403,8 +403,10 @@ SfbEfiActionMenu (IN EFI_HANDLE   Volume,
 
 /* ---- directory navigation ----------------------------------------------- */
 
-/* Returns TRUE when the browser should unwind back to the boot menu. */
-STATIC
+/*
+ * Returns TRUE when the browser should unwind back to the boot menu. Public:
+ * the Advanced volume browser opens individual volumes through it.
+ */
 BOOLEAN
 SfbBrowseVolume (IN EFI_HANDLE   Volume,
                  IN CONST CHAR16 *VolumeLabel,
@@ -564,12 +566,22 @@ SfbRunFileBrowser (VOID)
   UINTN           Cursor = 0;
   UINTN           Index;
 
+  SfbShowEnteringScreen (L"File Browser");
+
   /* Media may have been inserted since the loader started. */
   SfbStartFatStack ();
 
-  Status = SfbLocateVolumes (&Volumes, &VolumeCount);
+  /*
+   * The browser lists every volume that carries a Simple File System, however
+   * the firmware produced it - removable FAT sticks, the ext4 persist
+   * partition, mounted efisp.fat blobs, anything else recognisable. Browsing
+   * always starts at the volume's own root; no per-type prefix is applied.
+   */
+  Status = gBS->LocateHandleBuffer (ByProtocol,
+                                    &gEfiSimpleFileSystemProtocolGuid,
+                                    NULL, &VolumeCount, &Volumes);
   if (EFI_ERROR (Status) || Volumes == NULL || VolumeCount == 0) {
-    SfbReportStatus (L"No FAT32 volumes found",
+    SfbReportStatus (L"No file system volumes found",
                      EFI_ERROR (Status) ? Status : EFI_NOT_FOUND);
     if (Volumes != NULL) {
       FreePool (Volumes);
@@ -622,7 +634,7 @@ SfbRunFileBrowser (VOID)
     UINTN    Last;
     SFB_KEY  Key;
 
-    SfbBeginScreen (L"EFI Program Selector", L"Choose a FAT32 volume to browse.");
+    SfbBeginScreen (L"EFI Program Selector", L"Choose a volume to browse.");
 
     Start = SfbWindowStart (Cursor, RowCount, SFB_VISIBLE_ROWS);
     Last = Start + SFB_VISIBLE_ROWS;
@@ -651,17 +663,15 @@ SfbRunFileBrowser (VOID)
     }
 
     if (Cursor == VolumeCount) {
+      SfbDebounceMenuExit ();
       break;
     }
 
     {
-      /* Browse from the volume's root: "\" for FAT32, "\efisp" for the ext4
-       * persist volume. SfbVolumeRootPrefix gives "" for FAT32, which here
-       * means the plain volume root. */
-      CONST CHAR16  *Prefix = SfbVolumeRootPrefix (Volumes[Cursor]);
-      CONST CHAR16  *BrowseRoot = (Prefix[0] == L'\0') ? L"\\" : Prefix;
-
-      if (SfbBrowseVolume (Volumes[Cursor], Rows[Cursor].Label, BrowseRoot)) {
+      /* Every volume is browsed from its own root, FAT and ext4 alike; the
+       * per-type "\efisp" floor the scanner still applies is deliberately not
+       * applied here. */
+      if (SfbBrowseVolume (Volumes[Cursor], Rows[Cursor].Label, L"\\")) {
         break;
       }
     }

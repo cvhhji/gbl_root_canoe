@@ -9,19 +9,6 @@
 #include "Ext4Dxe.h"
 
 /**
-   Checks if the checksum of the extent data block is correct.
-   @param[in]      ExtHeader     Pointer to the EXT4_EXTENT_HEADER.
-   @param[in]      File          Pointer to the file.
-
-   @return TRUE if the checksum is correct, FALSE if there is corruption.
-*/
-BOOLEAN
-Ext4CheckExtentChecksum (
-  IN CONST EXT4_EXTENT_HEADER *ExtHeader,
-  IN CONST EXT4_FILE *File
-  );
-
-/**
    Calculates the checksum of the extent data block.
    @param[in]      ExtHeader     Pointer to the EXT4_EXTENT_HEADER.
    @param[in]      File          Pointer to the file.
@@ -244,7 +231,8 @@ Ext4GetExtent (
   Ext    = NULL;
   Buffer = NULL;
 
-  DEBUG ((EFI_D_INFO, "[ext4] Looking up extent for block %lu\n", LogicalBlock));
+  DEBUG ((EFI_D_VERBOSE, "[ext4] Looking up extent for block %lu\n",
+          LogicalBlock));
 
   if (!(Inode->i_flags & EXT4_EXTENTS_FL)) {
     return EFI_UNSUPPORTED;

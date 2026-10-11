@@ -377,7 +377,7 @@ Ext4ReadDir (
   IN OUT UINTN *OutLength
   )
 {
-  DEBUG ((EFI_D_INFO, "[ext4] Ext4ReadDir offset %lu\n", Offset));
+  DEBUG ((EFI_D_VERBOSE, "[ext4] Ext4ReadDir offset %lu\n", Offset));
   EXT4_INODE      *DirIno;
   EFI_STATUS      Status;
   UINT64          DirInoSize;
@@ -431,7 +431,7 @@ Ext4ReadDir (
       goto Out;
     }
 
-    DEBUG ((EFI_D_INFO, "[ext4] dirent size %lu\n", Entry.rec_len));
+    DEBUG ((EFI_D_VERBOSE, "[ext4] dirent size %lu\n", Entry.rec_len));
 
     if (Entry.inode == 0) {
       // When inode = 0, it's unused

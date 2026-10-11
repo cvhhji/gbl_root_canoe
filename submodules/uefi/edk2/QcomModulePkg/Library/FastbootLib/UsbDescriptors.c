@@ -279,7 +279,7 @@ EFI_USB_STRING_DESCRIPTOR *StrDescriptors[5] = {
     (EFI_USB_STRING_DESCRIPTOR *)StrSerialDescriptor,
     (EFI_USB_STRING_DESCRIPTOR *)StrInterfaceDescriptor};
 
-VOID
+EFI_STATUS
 BuildDefaultDescriptors (OUT USB_DEVICE_DESCRIPTOR **DevDesc,
                          OUT VOID **Descriptors,
                          OUT USB_DEVICE_DESCRIPTOR **SSDevDesc,
@@ -294,33 +294,22 @@ BuildDefaultDescriptors (OUT USB_DEVICE_DESCRIPTOR **DevDesc,
   VOID **TempSSDescs;
 
   Status = BoardSerialNum (Str_UUID, sizeof (Str_UUID));
-  if (Status != EFI_SUCCESS) {
-    DEBUG ((EFI_D_ERROR, "Error Finding board serial num: %x\n", Status));
-    return;
-  }
-
-  /* Full UUID descriptor should be length 74, now it only
-   * works up to 62.
-   * The array members of StrSerialDescriptor is:
-   * sizeof(StrSerialDescriptor), USB_DESC_TYPE_STRING,
-   * '9', 0,
-   * 'a', 0,
-   * '1', 0,
-   * '8', 0,
-   * '9', 0,
-   * '9', 0,
-   * '1', 0,
-   */
-  if (((AsciiStrLen (Str_UUID) - 1) * 2 + 3) > (MAX_DESC_LEN - 1)) {
-    DEBUG ((EFI_D_ERROR, "Error the array index out of bounds\n"));
-    return;
-  }
-
-  StrSerialDescriptor[0] = AsciiStrLen (Str_UUID) * 2 + 2;
-  StrSerialDescriptor[1] = USB_DESC_TYPE_STRING;
-  for (i = 0; i < AsciiStrLen (Str_UUID); i++) {
-    StrSerialDescriptor[i * 2 + 2] = Str_UUID[i];
-    StrSerialDescriptor[i * 2 + 3] = 0;
+  if (EFI_ERROR (Status) || AsciiStrLen (Str_UUID) == 0 ||
+      AsciiStrLen (Str_UUID) > (MAX_DESC_LEN - 2) / 2) {
+    /* Keep manual fastboot available when the platform supplies no identity.
+     * The application cannot start a device-bound workflow in this state. */
+    DeviceDescriptor.StrSerialNumber = 0;
+    SSDeviceDescriptor.StrSerialNumber = 0;
+    DEBUG ((EFI_D_WARN, "Fastboot has no usable platform USB serial: %r\n", Status));
+  } else {
+    DeviceDescriptor.StrSerialNumber = 3;
+    SSDeviceDescriptor.StrSerialNumber = 3;
+    StrSerialDescriptor[0] = AsciiStrLen (Str_UUID) * 2 + 2;
+    StrSerialDescriptor[1] = USB_DESC_TYPE_STRING;
+    for (i = 0; i < AsciiStrLen (Str_UUID); i++) {
+      StrSerialDescriptor[i * 2 + 2] = Str_UUID[i];
+      StrSerialDescriptor[i * 2 + 3] = 0;
+    }
   }
 
   *DevDesc = &DeviceDescriptor;
@@ -331,7 +320,7 @@ BuildDefaultDescriptors (OUT USB_DEVICE_DESCRIPTOR **DevDesc,
   if (TempDescs == NULL) {
     DEBUG (
         (EFI_D_ERROR, "Error Allocating memory for HS config descriptors\n"));
-    return;
+    return EFI_OUT_OF_RESOURCES;
   }
 
   TempSSDescs = AllocateZeroPool (NumCfg * sizeof (struct _SSCfgDescTree *));
@@ -340,7 +329,7 @@ BuildDefaultDescriptors (OUT USB_DEVICE_DESCRIPTOR **DevDesc,
         (EFI_D_ERROR, "Error Allocating memory for SS config descriptors\n"));
     FreePool (TempDescs);
     TempDescs = NULL;
-    return;
+    return EFI_OUT_OF_RESOURCES;
   }
   for (Index = 0; Index < NumCfg; Index++) {
     TempDescs[Index] = &TotalConfigDescriptor;
@@ -350,4 +339,5 @@ BuildDefaultDescriptors (OUT USB_DEVICE_DESCRIPTOR **DevDesc,
   }
   *Descriptors = TempDescs;
   *SSDescriptors = TempSSDescs;
+  return EFI_SUCCESS;
 }

@@ -57,4 +57,11 @@ FastbootDeviceData *GetFastbootDeviceData (VOID);
 EFI_STATUS HandleUsbEvents (VOID);
 EFI_STATUS FastbootUsbDeviceStop (VOID);
 EFI_STATUS FastbootInitialize (VOID);
+
+/*
+ * Ask the fastboot loop to end and hand control back to the boot menu. Safe to
+ * call from a command handler: the loop observes the request after the current
+ * USB event has been serviced, so an in-flight response still completes.
+ */
+VOID FastbootRequestExitToMenu (VOID);
 #endif

@@ -255,16 +255,27 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
      * Reached here because the menu was requested, or there was no default to
      * boot. Announce it and hold briefly so a still-held volume key is released
      * before the menu takes input, then run the menu. It only returns TRUE when
-     * the user picked fastboot.
+     * the user picked fastboot; FALSE means the menu is done. Fastboot can be
+     * exited back to the menu (its "Exit to menu" row or "exit" from the host),
+     * so the pair runs as a loop.
      */
-    SfbShowEnteringMenu ();
-    if (!SfbRunBootMenu ()) {
-      Status = EFI_SUCCESS;
-      goto stack_guard_update_default;
-    }
+    while (TRUE) {
+      SfbShowEnteringMenu ();
+      if (!SfbRunBootMenu ()) {
+        Status = EFI_SUCCESS;
+        goto stack_guard_update_default;
+      }
 
-    SfbShowFastbootMode ();
-    DEBUG ((EFI_D_INFO, "Boot menu requested fastboot\n"));
+      SfbShowFastbootMode ();
+      DEBUG ((EFI_D_INFO, "Boot menu requested fastboot\n"));
+      Status = FastbootInitialize ();
+      if (EFI_ERROR (Status)) {
+        DEBUG ((EFI_D_ERROR, "Failed to Launch Fastboot App: %d\n", Status));
+        goto stack_guard_update_default;
+      }
+      /* Fastboot exited back to the menu; loop around and show it again. */
+      DEBUG ((EFI_D_INFO, "Fastboot exited to the boot menu\n"));
+    }
   }
 
 #ifdef AUTO_VIRT_ABL

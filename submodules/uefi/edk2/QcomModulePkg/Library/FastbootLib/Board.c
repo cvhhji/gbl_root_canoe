@@ -64,6 +64,7 @@
  */
 
 #include "AutoGen.h"
+#include "UsbSerial.h"
 #include <Board.h>
 #include <Protocol/EFICardInfo.h>
 #include <Protocol/EFIPlatformInfoTypes.h>
@@ -660,15 +661,10 @@ GetMemCardInfo (VOID **MemCardInfo)
   gBS->FreePool (Handles);
   return Status;
 }
-const CHAR8 * hardcodesn= "0000000000000000";
 EFI_STATUS
 BoardSerialNum (CHAR8 *StrSerialNum, UINT32 Len)
 {
-  for (UINT32 i = 0; i < Len - 1 && hardcodesn[i] != '\0'; i++) {
-    StrSerialNum[i] = hardcodesn[i];
-  }
-  StrSerialNum[Len - 1] = '\0';
-  return EFI_SUCCESS;
+  return SfbUsbSerial (StrSerialNum, Len);
 }
 
 /* Helper APIs for device tree selection */

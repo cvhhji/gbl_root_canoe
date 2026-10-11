@@ -9,6 +9,7 @@
  */
 
 #include "SuperFbMenu.h"
+#include "SuperFbAdvanced.h"
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -298,6 +299,45 @@ SfbShowEnteringMenu (VOID)
   gST->ConIn->Reset (gST->ConIn, FALSE);
 }
 
+/* ---- shared screens ------------------------------------------------------- */
+
+/*
+ * Seconds to hold on an "Entering <submenu>" screen before the submenu starts
+ * taking input. Short of the root menu's three-second hold on purpose: the
+ * parent's confirm keystroke is already consumed, this only covers a key still
+ * held or its trailing repeat events.
+ */
+#define SFB_ENTERING_SCREEN_DELAY_S  1
+
+VOID
+SfbShowEnteringScreen (IN CONST CHAR16 *What)
+{
+  gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
+  gST->ConOut->ClearScreen (gST->ConOut);
+  gST->ConOut->EnableCursor (gST->ConOut, FALSE);
+
+  Print (L"Entering %s\r\n", (What != NULL) ? What : L"...");
+
+  gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
+
+  /* Wait for the key to be released, then drop anything typed or held during
+   * the wait so it does not leak into the submenu as a spurious keypress. */
+  gBS->Stall (SFB_ENTERING_SCREEN_DELAY_S * 1000 * 1000);
+  gST->ConIn->Reset (gST->ConIn, FALSE);
+}
+
+/*
+ * Debounce a menu exit: the key that confirmed Back would otherwise leak into
+ * the parent menu (or its trailing repeats would) and act there immediately.
+ * Hold for the entering-screen delay, then drop everything queued.
+ */
+VOID
+SfbDebounceMenuExit (VOID)
+{
+  gBS->Stall (SFB_ENTERING_SCREEN_DELAY_S * 1000 * 1000);
+  gST->ConIn->Reset (gST->ConIn, FALSE);
+}
+
 /* ---- boot menu ---------------------------------------------------------- */
 
 STATIC
@@ -405,6 +445,8 @@ SfbRunSubMenu (IN EFI_HANDLE   Volume,
     Chosen = Cursor;
     switch (Menu->Entry[Chosen].Kind) {
     case SfbEntryBack:
+      /* Returning to the parent: debounce the confirming key first. */
+      SfbDebounceMenuExit ();
       goto done;
 
     case SfbEntrySubmenu:
@@ -476,13 +518,14 @@ SfbRunBootMenu (VOID)
     }
 
     switch (Menu.Entry[Chosen].Kind) {
-    case SfbEntryFastboot:
-      SfbFreeMenu (&Menu);
-      return TRUE;
-
-    case SfbEntrySelector:
-      SfbRunFileBrowser ();
-      /* The browser may have added a custom entry. */
+    case SfbEntryAdvanced:
+      /* Advanced owns fastboot now: a TRUE return means the user picked
+       * "Enter Fastboot" there and the caller should hand over to it. */
+      if (SfbRunAdvancedMenu ()) {
+        SfbFreeMenu (&Menu);
+        return TRUE;
+      }
+      /* Storage and media state changed inside the submenu. */
       Rebuild = TRUE;
       break;
 
