@@ -1,4 +1,4 @@
-import { exec as ksuExec, moduleInfo as ksuModuleInfo, toast } from "./kernelsu.js";
+import { exec as ksuExec, moduleInfo as ksuModuleInfo, hasExecBridge, toast } from "./kernelsu.js";
 
 const IMAGE_NAMES = ["abl"];
 
@@ -18,13 +18,17 @@ const state = {
   activeTaskScope: "",
   activeTaskSlot: "",
   completionNotifiedTaskId: "",
-  lang: "zh"
+  lang: "zh",
+  compatibilityError: false
 };
 
 const i18n = {
   zh: {
     pageTitle: "假回锁 - BL Flasher",
     ksuWebUI: "KernelSU Module WebUI",
+    missingBridge: "缺少 WebUI 命令接口",
+    invalidModuleInfo: "模块目录无效",
+    invalidInitialStatus: "无法读取有效的模块状态与槽位",
     heroDesc: "自动识别当前活动槽位，若新版本存在GBL漏洞则跳过BL刷写；将BL镜像刷写到另一槽位，并将破解ABL放入persist的efisp目录、BDS刷入efisp分区",
     slotStatus: "槽位状态",
     refresh: "刷新",
@@ -102,6 +106,9 @@ const i18n = {
   en: {
     pageTitle: "Fake Lock - BL Flasher",
     ksuWebUI: "KernelSU Module WebUI",
+    missingBridge: "WebUI command interface is missing",
+    invalidModuleInfo: "Invalid module directory",
+    invalidInitialStatus: "Cannot read valid module status and slots",
     heroDesc: "Auto-detect active slot. Skip BL flash if new build has GBL exploit. Flash BL images to inactive slot, place the cracked ABL in persist's efisp dir and flash the BDS to the efisp partition.",
     slotStatus: "Slot Status",
     refresh: "Refresh",
@@ -281,6 +288,10 @@ async function runScript(action, arg) {
 
 async function toggleLanguage() {
   const nextLanguage = state.lang === "zh" ? "en" : "zh";
+  if (state.compatibilityError) {
+    applyLanguage(nextLanguage);
+    return;
+  }
   try {
     await runScript("set-language", nextLanguage);
     if (!elements.confirmModal.classList.contains("hidden")) closeConfirmModal();
@@ -349,6 +360,14 @@ function localizedTaskMessage(status) {
   return message || t.waitOperate;
 }
 
+function hasValidStatus(status) {
+  const current = status?.CURRENT_SLOT;
+  const target = status?.TARGET_SLOT;
+  return ((current === "_a" && target === "_b") || (current === "_b" && target === "_a")) &&
+    ["idle", "running", "success", "warning", "error"].includes(status.STATE) &&
+    ["0", "1"].includes(status.RUNNING);
+}
+
 function renderStatus(status) {
   state.status = status;
   const t = i18n[state.lang];
@@ -376,10 +395,11 @@ function renderStatus(status) {
   else if (st === "error") elements.stateChip.classList.add("chip-danger");
   else if (st === "warning" || run) elements.stateChip.classList.add("chip-warn");
   elements.slotChip.textContent = (cur !== "-" && tar !== "-") ? `${state.lang === "zh" ? "当前" : "Current"} ${cur} → ${state.lang === "zh" ? "目标" : "Target"} ${tar}` : t.slotUnknown;
-  elements.flashButton.disabled = run || cur === "-" || tar === "-";
-  elements.bdsToolsButton.disabled = run;
-  elements.patchPartButton.disabled = run;
-  elements.clearLogButton.disabled = run;
+  const canOperate = !state.compatibilityError && hasValidStatus(status);
+  elements.flashButton.disabled = run || !canOperate;
+  elements.bdsToolsButton.disabled = run || !canOperate;
+  elements.patchPartButton.disabled = run || !canOperate;
+  elements.clearLogButton.disabled = run || !canOperate;
   renderTable(cur, tar);
 }
 function taskSlotSuffix() {
@@ -442,7 +462,7 @@ function applyStatus(s, notify = true) {
   return s;
 }
 
-async function refreshStatus() {
+async function refreshStatus({ throwOnError = false } = {}) {
   try {
     const raw = await runScript("status");
     if (!raw) return state.status;
@@ -454,6 +474,7 @@ async function refreshStatus() {
     return applyStatus(s);
   } catch (e) {
     console.error("refreshStatus failed:", e);
+    if (throwOnError) throw e;
     return state.status;
   }
 
@@ -694,9 +715,15 @@ function initPatchCheckboxMutual() {
 }
 
 async function init() {
+  elements.languageButton.addEventListener("click", toggleLanguage);
+  applyLanguage(navigator.language?.toLowerCase().startsWith("zh") ? "zh" : "en");
   try {
+    if (!hasExecBridge()) throw new Error(i18n[state.lang].missingBridge);
     const info = moduleInfo();
-    if(!info) return;
+    if (typeof info?.moduleDir !== "string" ||
+        !/^\/data\/adb\/modules\/fake_bl_efisp\/?$/.test(info.moduleDir)) {
+      throw new Error(i18n[state.lang].invalidModuleInfo);
+    }
     state.moduleDir = info.moduleDir;
     state.scriptPath = `${state.moduleDir}/bin/bl_flasher.sh`;
     initPatchCheckboxMutual();
@@ -707,9 +734,14 @@ async function init() {
       state.activeTaskSlot = pending?.slot || "";
     } catch {}
     state.taskStarted = Boolean(state.activeTaskId);
-    await refreshStatus();
+    const initialStatus = await refreshStatus({ throwOnError: true });
+    if (!hasValidStatus(initialStatus)) {
+      throw new Error(i18n[state.lang].invalidInitialStatus);
+    }
     await refreshLog();
   } catch (e) {
+    state.compatibilityError = true;
+    applyLanguage(state.lang);
     elements.stateChip.textContent = state.lang === "zh" ? "WebUI 初始化失败" : "WebUI Init Failed";
     elements.stateChip.className = "chip chip-danger";
     elements.taskMessage.textContent = e.message;
@@ -717,11 +749,11 @@ async function init() {
     elements.bdsToolsButton.disabled = true;
     elements.patchPartButton.disabled = true;
     elements.clearLogButton.disabled = true;
+    elements.refreshButton.disabled = true;
     return;
   }
 
   elements.refreshButton.addEventListener("click", manualRefresh);
-  elements.languageButton.addEventListener("click", toggleLanguage);
   elements.flashButton.addEventListener("click", () => openConfirmModal("flash"));
   elements.bdsToolsButton.addEventListener("click", () => openConfirmModal("bds-tools"));
   document.addEventListener("visibilitychange", () => {
