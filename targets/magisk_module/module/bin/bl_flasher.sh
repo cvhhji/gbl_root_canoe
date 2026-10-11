@@ -13,6 +13,15 @@ export KSU_MODULE=${KSU_MODULE:-fake_bl_efisp}
 
 USER_LANG=$(ksud module config get user_lang 2>/dev/null)
 case "$USER_LANG" in
+  zh|en) ;;
+  *)
+    case "$(sed -n 's/^name=//p' "$MODDIR/module.prop")" in
+      '假回锁') USER_LANG=zh ;;
+      'Fake BL EFISP') USER_LANG=en ;;
+    esac
+    ;;
+esac
+case "$USER_LANG" in
   zh|en) LANG=$USER_LANG ;;
   *)
     SYSTEM_LOCALE=$(getprop persist.sys.locale 2>/dev/null)
@@ -727,7 +736,9 @@ set_language() {
       ;;
     *) return 1 ;;
   esac
-  ksud module config set user_lang "$1" >/dev/null 2>&1 || return 1
+  if command -v ksud >/dev/null 2>&1; then
+    ksud module config set user_lang "$1" >/dev/null 2>&1 || return 1
+  fi
   sed -i "s|^name=.*|name=$_language_name|" "$MODDIR/module.prop" || return 1
   sed -i "s|^description=.*|description=$_language_description|" "$MODDIR/module.prop" || return 1
   emit "LANG=$1"

@@ -4,6 +4,10 @@ function callbackName(prefix) {
   return `${prefix}_callback_${Date.now()}_${callbackCounter++}`;
 }
 
+export function hasExecBridge() {
+  return typeof window.ksu?.exec === "function";
+}
+
 export function exec(command, options = {}) {
   return new Promise((resolve, reject) => {
     const name = callbackName("exec");
@@ -12,7 +16,7 @@ export function exec(command, options = {}) {
       resolve({ errno, stdout, stderr });
     };
     try {
-      ksu.exec(command, JSON.stringify(options), name);
+      window.ksu.exec(command, JSON.stringify(options), name);
     } catch (error) {
       delete window[name];
       reject(error);
@@ -21,9 +25,12 @@ export function exec(command, options = {}) {
 }
 
 export function toast(message) {
-  ksu.toast(message);
+  if (typeof window.ksu?.toast === "function") window.ksu.toast(message);
+  else console.warn(message);
 }
 
 export function moduleInfo() {
-  return ksu.moduleInfo();
+  if (typeof window.ksu?.moduleInfo === "function") return window.ksu.moduleInfo();
+  // APatch and FolkPatch expose ksu.exec without KernelSU's moduleInfo API.
+  return { moduleDir: "/data/adb/modules/fake_bl_efisp" };
 }

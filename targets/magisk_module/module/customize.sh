@@ -14,6 +14,10 @@ detect_default_language() {
   case "$saved_language" in
     zh|en) echo "$saved_language"; return ;;
   esac
+  case "$(sed -n 's/^name=//p' /data/adb/modules/fake_bl_efisp/module.prop 2>/dev/null)" in
+    '假回锁') echo zh; return ;;
+    'Fake BL EFISP') echo en; return ;;
+  esac
   system_locale=$(getprop persist.sys.locale 2>/dev/null)
   [ -n "$system_locale" ] || system_locale=$(getprop ro.product.locale 2>/dev/null)
   case "$system_locale" in
