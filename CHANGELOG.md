@@ -1,5 +1,14 @@
 # 更新日志
 
+## 6.2.220（上游同步测试分支）
+
+- 同步 `SuperTurtleDev/gbl_root_canoe` 至 `8cc6fa5ad467af6d34a00f401290035ee87a14c7`。
+- 移植 Advanced 菜单、按 LUN/虚拟磁盘分组的卷浏览器及 USB Mass Storage 导出。
+- 增加 `efisp.fat` 容器读取和启动参数支持，继续兼容现有 `persist/efisp` 目录布局。
+- 同步 Fastboot 响应边界、USB 序列号、GPT 错误传播与快照恢复、ext4 校验和驱动生命周期修复。
+- 保留本仓库的 Fastboot 双缓冲容量限制及标准 GPT 最小分区表大小。
+- 继承主分支 WebUI 兼容修复；本版本只在测试分支验证，未合入主分支。
+
 ## 6.2.219
 
 - 修复 APatch、FolkPatch 缺少 `ksu.moduleInfo()` 时 WebUI 无法完成初始化的问题。
