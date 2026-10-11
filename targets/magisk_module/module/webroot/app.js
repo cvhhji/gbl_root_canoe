@@ -278,10 +278,7 @@ async function runScript(action, arg) {
   const parts = [`MODDIR=${shellQuote(state.moduleDir)}`, "sh", shellQuote(state.scriptPath), action];
   if (arg) parts.push(shellQuote(arg));
   const command = parts.join(" ");
-  const timeout = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error("KernelSU exec timeout")), 8000);
-  });
-  const { errno, stdout, stderr } = await Promise.race([ksuExec(command), timeout]);
+  const { errno, stdout, stderr } = await ksuExec(command);
   if (errno !== 0) throw new Error(stderr || `Command failed: ${errno}`);
   return stdout || "";
 }
@@ -334,7 +331,6 @@ function renderTable(currentSlot, targetSlot) {
 function localizedTaskMessage(status) {
   const t = i18n[state.lang];
   const message = status.MESSAGE || "";
-  const normalized = message.toLowerCase();
   const slotMatch = message.match(/(当前槽位|Current slot|目标槽位|Target slot)\s*:\s*(_[ab])/i);
   let suffix = "";
   if (slotMatch) {
@@ -510,7 +506,6 @@ function getPatchArgString() {
 }
 
 function getSelectedPatchName() {
-  const t = i18n[state.lang];
   if (elements.patchVendorBootCheckbox.checked) return "vendor_boot";
   if (elements.patchSuperCheckbox.checked) return "super";
   return "";
@@ -614,7 +609,16 @@ function handleStartResult(out, startedMessage, scope = "", slot = "") {
   toast(t.toastStartError);
 }
 
-async function startFlash() {
+async function startTask(action, arg, message, scope = "", slot = "") {
+  const t = i18n[state.lang];
+  try {
+    const out = parseKeyValueOutput(await runScript(action, arg));
+    handleStartResult(out, message, scope, slot);
+  } catch (e) { toast(`${t.startFail}: ${e.message}`); }
+  await manualRefresh();
+}
+
+function startFlash() {
   const t = i18n[state.lang];
   const efisp = elements.updateEfispCheckbox?.checked;
   const dbg = elements.debugModeCheckbox?.checked;
@@ -624,31 +628,18 @@ async function startFlash() {
   const targetSlot = state.status?.TARGET_SLOT || "?";
   const startMessage = `${dbg ? t.toastStartDebug : t.toastStartFlash} (${t.targetSlot}: ${targetSlot})`;
 
-  try {
-    const out = parseKeyValueOutput(await runScript("start", fullMode));
-    handleStartResult(out, startMessage, "target", targetSlot);
-  } catch (e) { toast(`${t.startFail}: ${e.message}`); }
-  await manualRefresh();
+  return startTask("start", fullMode, startMessage, "target", targetSlot);
 }
 
-async function startPatchPart() {
+function startPatchPart() {
   const t = i18n[state.lang];
   const currentSlot = state.status?.CURRENT_SLOT || "?";
   const startMessage = `${t.toastStartPatch} (${t.currentSlot}: ${currentSlot})`;
-  try {
-    const out = parseKeyValueOutput(await runScript("start-patch", getPatchArgString()));
-    handleStartResult(out, startMessage, "current", currentSlot);
-  } catch (e) { toast(`${t.startFail}: ${e.message}`); }
-  await manualRefresh();
+  return startTask("start-patch", getPatchArgString(), startMessage, "current", currentSlot);
 }
 
-async function startBdsTools() {
-  const t = i18n[state.lang];
-  try {
-    const out = parseKeyValueOutput(await runScript("start", "update-bds-tools"));
-    handleStartResult(out, t.toastStartBdsTools);
-  } catch (e) { toast(`${t.startFail}: ${e.message}`); }
-  await manualRefresh();
+function startBdsTools() {
+  return startTask("start", "update-bds-tools", i18n[state.lang].toastStartBdsTools);
 }
 
 async function clearLog() {
@@ -685,10 +676,6 @@ async function poll() {
     state.refreshRequested = false;
     schedulePoll(refreshNow ? 0 : (running ? 1000 : 8000));
   }
-}
-
-function startPolling() {
-  schedulePoll(0);
 }
 
 async function manualRefresh() {
@@ -767,7 +754,7 @@ async function init() {
   elements.nextConfirmButton.addEventListener("click", handleConfirmProgress);
   elements.confirmModal.addEventListener("click", e => e.target === elements.confirmModal && closeConfirmModal());
 
-  startPolling();
+  schedulePoll(0);
 }
 
 init();

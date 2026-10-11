@@ -16,6 +16,7 @@
 ### 编译依赖
 构建各种发布包必须在 **Linux** 环境下进行：
 - `gcc` / `clang`, `lld`, `make`, `zip`, `python3`
+- 打包所需的 Python 依赖：`python3 -m pip install tree-sitter-language-pack==0.11.0 tree-sitter==0.25.2`
 - `liblzma-dev` (用于编译 `extractfv` 解包工具)
 - **Android NDK**（用于 `make target_magisk_module` 交叉编译 Android 平台的修补工具）
 - **MinGW-w64**

@@ -5,6 +5,7 @@ on:
     branches: [ main, test/upstream-20261011 ]
   pull_request:
   workflow_call:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -45,6 +46,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y lld clang llvm uuid-dev liblzma-dev mingw-w64 zip
+        python3 -m pip install tree-sitter-language-pack==0.11.0 tree-sitter==0.25.2
 
     - name: Setup Variables
       run: |
@@ -80,6 +82,16 @@ jobs:
         cp -r tools/vbmetafixer/build/toolkit/* artifacts/vbmetafixer_linux/
         cp -r tools/vbmetafixer/build/toolkit_win/* artifacts/vbmetafixer_windows/
         cp -r tools/vbmetafixer/build/toolkit_android/* artifacts/vbmetafixer_android/
+
+    - name: Check packaged scripts
+      run: |
+        python3 tools/strip_comments.py artifacts --check
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            *.sh) bash -n "$file" ;;
+            *.js) node --check "$file" ;;
+          esac
+        done < <(find artifacts -type f \( -name '*.sh' -o -name '*.js' \) -print0)
 
     - name: Upload Linux Toolkit
       uses: actions/upload-artifact@v4

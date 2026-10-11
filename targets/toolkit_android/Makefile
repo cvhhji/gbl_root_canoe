@@ -1,6 +1,7 @@
 clean:
 	rm -rf build || true
 copy_resources:
+	rm -rf build/toolkit build/toolkit_android.zip
 	mkdir -p build/toolkit
 	mkdir -p build/toolkit/bin
 	cp -r resources/* build/toolkit/
@@ -17,5 +18,8 @@ submodule_ablfvextractor: copy_resources
 	cd ../../submodules/ablfvextractor && make build_android
 	cp ../../submodules/ablfvextractor/build/extractfv_android ./build/toolkit/bin/extractfv
 build: submodule_uefi submodule_patcher submodule_ablfvextractor
+	python3 ../../tools/strip_comments.py build/toolkit
 	# zip
 	cd build/toolkit && zip -r ../toolkit_android.zip ./
+
+.PHONY: clean copy_resources submodule_uefi submodule_patcher submodule_ablfvextractor build

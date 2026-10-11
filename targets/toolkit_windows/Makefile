@@ -1,6 +1,7 @@
 clean:
 	rm -rf build || true
 copy_resources:
+	rm -rf build/toolkit build/toolkit_windows.zip
 	mkdir -p build/toolkit
 	mkdir -p build/toolkit/bin
 	cp -r resources/* build/toolkit/
@@ -17,5 +18,8 @@ submodule_ablfvextractor: copy_resources
 	cd ../../submodules/ablfvextractor && make build_windows
 	cp ../../submodules/ablfvextractor/build/extractfv.exe ./build/toolkit/bin/extractfv.exe
 build: submodule_uefi submodule_patcher submodule_ablfvextractor
+	python3 ../../tools/strip_comments.py build/toolkit
 	# zip
 	cd build/toolkit && zip -r ../toolkit_windows.zip ./
+
+.PHONY: clean copy_resources submodule_uefi submodule_patcher submodule_ablfvextractor build
