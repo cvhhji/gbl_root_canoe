@@ -16,6 +16,7 @@ This section is for developers who want to compile the toolkits from source.
 ### Prerequisites
 You must be on a **Linux** host to build the project:
 - `gcc` / `clang`, `lld`, `make`, `zip`, `python3`
+- Python packages for packaging: `python3 -m pip install tree-sitter-language-pack==0.11.0 tree-sitter==0.25.2`
 - `liblzma-dev` (for compiling `extractfv`)
 - **Android NDK** (Required for `make target_magisk_module` to cross-compile tools for Android)
 - **MinGW-w64**

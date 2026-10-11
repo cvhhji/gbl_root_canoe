@@ -387,4 +387,4 @@ SfbMoveCursor (IN OUT UINTN *Cursor, IN UINTN Count, IN SFB_KEY Key);
 VOID
 SfbReportStatus (IN CONST CHAR16 *What, IN EFI_STATUS Status);
 
-#endif /* __SUPER_FB_MENU_H__ */
+#endif

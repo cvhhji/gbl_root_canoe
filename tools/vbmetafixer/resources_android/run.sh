@@ -22,7 +22,22 @@ VBMETA_DIR=./vbmetas
 BY_NAME=/dev/block/by-name
 
 usage() {
-  sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<'USAGE'
+vbmetafixer (Android, on-device) — graft an OFFICIAL vbmeta footer onto a
+third-party image (e.g. a custom recovery) so it passes fake-lock AVB
+verification, then flash it. Run as root.
+
+Usage:
+  sh run.sh backup                     Back up the official vbmeta chain from
+                                       the active slot into ./vbmetas/
+  sh run.sh flash <partition> <image>  Graft the official footer of
+                                       <partition>'s base onto <image> and
+                                       flash the result to <partition>.
+
+Examples:
+  sh run.sh backup
+  sh run.sh flash recovery_a twrp.img
+USAGE
 }
 
 # Drop an _a / _b / _ab slot suffix to get the base partition name.

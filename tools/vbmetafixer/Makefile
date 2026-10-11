@@ -15,3 +15,6 @@ build_windows:
 build_android:
 	mkdir -p build/toolkit_android
 	bash ./tools/build_vbmetafixer_android.sh
+	python3 ../strip_comments.py build/toolkit_android
+
+.PHONY: clean build build_windows build_android

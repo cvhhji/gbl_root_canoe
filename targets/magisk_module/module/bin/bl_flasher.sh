@@ -464,45 +464,32 @@ exec_patch_by_args() {
   cd "$BINDIR" || { write_log "$TEXT_BIN_NOT_FOUND: $BINDIR"; return 1; }
 
   if [ "$arg_vendor_boot" = "1" ]; then
-    write_log "$TEXT_PATCH_VENDORBOOT_START ($TEXT_PATCH_SLOT: $target_slot_suffix)"
-    if [ "$arg_debug" = "1" ]; then
-      write_log "$TEXT_PATCH_DEBUG_SAVE"
-    else
-      if [ -x "$BINDIR/patch_tools" ]; then
-        if ! run_quiet "$TEXT_PATCH_ERR" "$BINDIR/patch_tools" patch_vendor "$slot_letter"; then
-          cd "$_old_pwd"
-          return 1
-        fi
-      else
-        write_log "$TEXT_BIN_NOT_FOUND: patch_tools"
+    _patch_start=$TEXT_PATCH_VENDORBOOT_START
+    _patch_done=$TEXT_PATCH_VENDORBOOT_DONE
+    set -- patch_vendor "$slot_letter"
+  else
+    _patch_start=$TEXT_PATCH_SUPER_START
+    _patch_done=$TEXT_PATCH_SUPER_DONE
+    set -- patch_vendor "$slot_letter" super
+  fi
+  write_log "$_patch_start ($TEXT_PATCH_SLOT: $target_slot_suffix)"
+  if [ "$arg_debug" = "1" ]; then
+    write_log "$TEXT_PATCH_DEBUG_SAVE"
+  else
+    if [ -x "$BINDIR/patch_tools" ]; then
+      if ! run_quiet "$TEXT_PATCH_ERR" "$BINDIR/patch_tools" "$@"; then
         cd "$_old_pwd"
         return 1
       fi
-    fi
-    write_log "$TEXT_PATCH_VENDORBOOT_DONE ($TEXT_PATCH_SLOT: $target_slot_suffix)"
-  fi
-
-  if [ "$arg_super" = "1" ]; then
-    write_log "$TEXT_PATCH_SUPER_START ($TEXT_PATCH_SLOT: $target_slot_suffix)"
-    if [ "$arg_debug" = "1" ]; then
-      write_log "$TEXT_PATCH_DEBUG_SAVE"
     else
-      if [ -x "$BINDIR/patch_tools" ]; then
-        if ! run_quiet "$TEXT_PATCH_ERR" "$BINDIR/patch_tools" patch_vendor "$slot_letter" super; then
-          cd "$_old_pwd"
-          return 1
-        fi
-      else
-        write_log "$TEXT_BIN_NOT_FOUND: patch_tools"
-        cd "$_old_pwd"
-        return 1
-      fi
+      write_log "$TEXT_BIN_NOT_FOUND: patch_tools"
+      cd "$_old_pwd"
+      return 1
     fi
-    write_log "$TEXT_PATCH_SUPER_DONE ($TEXT_PATCH_SLOT: $target_slot_suffix)"
   fi
+  write_log "$_patch_done ($TEXT_PATCH_SLOT: $target_slot_suffix)"
 
   cd "$_old_pwd"
-  return 0
 }
 
 run_flash() {

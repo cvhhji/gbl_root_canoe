@@ -13,8 +13,6 @@
 #include "magiskboot.hpp"
 #include "boot-rs.hpp"
 
-
-
 static bool write_all(int fd, const void *data, size_t size) {
     auto *p = static_cast<const char *>(data);
     while (size) {
@@ -44,7 +42,13 @@ static bool set_block_writable(const char *path) {
     }
 
     int read_only = 0;
-    if (ioctl(fd, BLKROGET, &read_only) == 0 && read_only) {
+    if (ioctl(fd, BLKROGET, &read_only) != 0) {
+        int error = errno;
+        close(fd);
+        print_errno("读取只读状态", path, error);
+        return false;
+    }
+    if (read_only) {
         read_only = 0;
         if (ioctl(fd, BLKROSET, &read_only) != 0) {
             int error = errno;
@@ -148,9 +152,15 @@ static bool copy_file(const char *src, const char *dst, bool flush = false) {
             close(dfd);
             return false;
         }
-        if (ioctl(dfd, BLKGETSIZE64, &block_size) == 0 &&
+        if (ioctl(dfd, BLKGETSIZE64, &block_size) != 0) {
+            print_errno("读取分区大小", dst, errno);
+            close(sfd);
+            close(dfd);
+            return false;
+        }
+        if (source_info.st_size <= 0 ||
             static_cast<uint64_t>(source_info.st_size) > block_size) {
-            fprintf(stdout, "[!] 镜像大于目标分区: %lld > %llu bytes\n",
+            fprintf(stdout, "[!] 镜像大小无效或超过目标分区: %lld / %llu bytes\n",
                     static_cast<long long>(source_info.st_size),
                     static_cast<unsigned long long>(block_size));
             close(sfd);
@@ -165,7 +175,10 @@ static bool copy_file(const char *src, const char *dst, bool flush = false) {
         ssize_t n = read(sfd, buf, sizeof(buf));
         if (n < 0 && errno == EINTR) continue;
         if (n <= 0) {
-            if (n < 0) ok = false;
+            if (n < 0) {
+                print_errno("读取源文件", src, errno);
+                ok = false;
+            }
             break;
         }
         if (!write_all(dfd, buf, static_cast<size_t>(n))) {
@@ -175,8 +188,8 @@ static bool copy_file(const char *src, const char *dst, bool flush = false) {
         }
     }
     if (flush && ok && ioctl(dfd, BLKFLSBUF, 0) != 0) {
-        fprintf(stdout, "[!] 警告: 刷新块设备缓存失败: %s (%s, errno=%d)\n",
-                dst, strerror(errno), errno);
+        print_errno("刷新块设备缓存", dst, errno);
+        ok = false;
     }
     if (close(sfd) != 0) {
         print_errno("关闭源文件", src, errno);
@@ -227,43 +240,6 @@ private:
 };
 
 static const char *fstab_content =
-"# Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.\n"
-"#\n"
-"# Redistribution and use in source and binary forms, with or without\n"
-"# modification, are permitted (subject to the limitations in the\n"
-"# disclaimer below) provided that the following conditions are met:\n"
-"#\n"
-"#    * Redistributions of source code must retain the above copyright\n"
-"#      notice, this list of conditions and the following disclaimer.\n"
-"#\n"
-"#    * Redistributions in binary form must reproduce the above\n"
-"#      copyright notice, this list of conditions and the following\n"
-"#      disclaimer in the documentation and/or other materials provided\n"
-"#      with the distribution.\n"
-"#\n"
-"#    * Neither the name of The Linux Foundation nor the names of its\n"
-"#      contributors may be used to endorse or promote products derived\n"
-"#      from this software without specific prior written permission.\n"
-"#\n"
-"# NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE\n"
-"# GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT\n"
-"# HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED\n"
-"# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF\n"
-"# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.\n"
-"# IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR\n"
-"# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n"
-"# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE\n"
-"# GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS\n"
-"# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER\n"
-"# IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR\n"
-"# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN\n"
-"# IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
-"\n"
-"# Android fstab file.\n"
-"# The filesystem that contains the filesystem checker binary (typically /system) cannot\n"
-"# specify MF_CHECK, and must come before any filesystems that do specify MF_CHECK\n"
-"\n"
-"#<src>                                                 <mnt_point>            <type>  <mnt_flags and options>                            <fs_mgr_flags>\n"
 "/dev/block/by-name/oplusreserve2          /mnt/vendor/oplusreserve             ext4   nosuid,nodev,noatime,barrier=1                           wait,check,nofail,first_stage_mount\n"
 "system                                                  /system                ext4    ro,barrier=1,discard                                 wait,slotselect,avb=vbmeta_system,logical,first_stage_mount\n"
 "system                                                  /system                erofs   ro                               wait,slotselect,avb=vbmeta_system,logical,first_stage_mount\n"
@@ -284,7 +260,6 @@ static const char *fstab_content =
 "/dev/block/by-name/vendor_boot                          /vendor_boot           emmc    defaults                                             slotselect,first_stage_mount\n"
 "/dev/block/by-name/dtbo                                 /dtbo                  emmc    defaults                                             slotselect,first_stage_mount\n"
 "/dev/block/by-name/recovery                             /recovery              emmc    defaults                                             slotselect,first_stage_mount\n"
-"# Mount my_xx to /my_xxx in first_stage_mount\n"
 "my_product                 /my_product                             ext4    ro,barrier=1       wait,slotselect,logical,first_stage_mount,nofail\n"
 "my_product                 /my_product                             erofs   ro                 wait,slotselect,logical,first_stage_mount,nofail\n"
 "my_engineering             /my_engineering                         ext4    ro,barrier=1       wait,slotselect,logical,first_stage_mount,nofail\n"
@@ -305,16 +280,13 @@ static const char *fstab_content =
 "my_bigball                 /my_bigball                             erofs   ro                 wait,slotselect,logical,first_stage_mount,nofail\n"
 "my_manifest                /my_manifest                            ext4    ro,barrier=1       wait,slotselect,logical,first_stage_mount,nofail\n"
 "my_manifest                /my_manifest                            erofs   ro                 wait,slotselect,logical,first_stage_mount,nofail\n"
-"# Mount app,priv-app,lib64,lib of my_region/my_preload/my_heytap/my_engineering over /product/\n"
 "overlay-overlay            /product/app                            overlay ro,seclabel,noatime,redirect_dir=nofollow,userxattr,lowerdir=/my_region/app:/my_preload/app:/my_product/app:/my_heytap/app:/my_stock/app:/my_engineering/app:/product/app                                    overlayfs_remove_missing_lowerdir\n"
 "overlay-overlay            /product/priv-app                       overlay ro,seclabel,noatime,redirect_dir=nofollow,userxattr,lowerdir=/my_region/priv-app:/my_preload/priv-app:/my_product/priv-app:/my_heytap/priv-app:/my_stock/priv-app:/my_engineering/priv-app:/product/priv-app overlayfs_remove_missing_lowerdir\n"
 "overlay-overlay            /product/lib64                          overlay ro,seclabel,noatime,redirect_dir=nofollow,userxattr,lowerdir=/my_region/lib64:/my_preload/lib64:/my_product/lib64:/my_heytap/lib64:/my_stock/lib64:/my_engineering/lib64:/product/lib64                      overlayfs_remove_missing_lowerdir\n"
 "overlay-overlay            /product/lib                            overlay ro,seclabel,noatime,redirect_dir=nofollow,userxattr,lowerdir=/my_region/lib:/my_preload/lib:/my_product/lib:/my_heytap/lib:/my_stock/lib:/my_engineering/lib:/product/lib                                    overlayfs_remove_missing_lowerdir\n"
-"# Mount etc/permissions,framework,media/audio/ui of my_product over /product/\n"
 "overlay-overlay            /product/etc/permissions                overlay ro,seclabel,redirect_dir=nofollow,userxattr,lowerdir=/my_product/product_overlay/etc/permissions:/product/etc/permissions                                                                                    overlayfs_remove_missing_lowerdir\n"
 "overlay-overlay            /product/framework                      overlay ro,seclabel,redirect_dir=nofollow,userxattr,lowerdir=/my_product/product_overlay/framework:/product/framework                                                                                                overlayfs_remove_missing_lowerdir\n"
 "overlay-overlay            /product/media/audio/ui                 overlay ro,seclabel,redirect_dir=nofollow,userxattr,lowerdir=/my_product/product_overlay/media/audio/ui:/product/media/audio/ui                                                                                      overlayfs_remove_missing_lowerdir\n"
-"# Mount media/audio/ringtones/,media/audio/notifications/ of my_product over /system_ext\n"
 "overlay-overlay            /system_ext/media/audio/ringtones       overlay ro,seclabel,redirect_dir=nofollow,userxattr,lowerdir=/my_product/product_overlay/media/audio/ringtones:/system_ext/media/audio/ringtones                                                                     overlayfs_remove_missing_lowerdir\n"
 "overlay-overlay            /system_ext/media/audio/notifications   overlay ro,seclabel,redirect_dir=nofollow,userxattr,lowerdir=/my_product/product_overlay/media/audio/notifications:/system_ext/media/audio/notifications                                                             overlayfs_remove_missing_lowerdir\n"
 "/dev/block/by-name/metadata                             /metadata              f2fs    noatime,nosuid,nodev,discard                         wait,check,formattable,first_stage_mount\n"
