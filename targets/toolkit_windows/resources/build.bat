@@ -30,12 +30,12 @@ if not exist efisp\boot.efi (
   exit /b 1
 )
 
-findstr /C:"Android ESP loader:" patch_log.txt >nul && (
+findstr /C:"Android ESP layout:" patch_log.txt >nul && (
   echo.
-  echo Android ESP test loader saved to efisp/boot.efi.
-  echo Partition layout and boot-chain installation still need device testing.
+  echo Patched EFI saved to efisp/boot.efi for offline analysis.
+  echo EFI boot entry is not supported by this test build.
   echo Do not flash this EFI file to the android_esp or abl partition.
-  echo 新版测试 EFI 已生成：efisp/boot.efi，分区布局和启动链安装方式尚未验证。
+  echo 测试 EFI 已生成：efisp/boot.efi，仅供离线分析，尚未支持从原厂启动链加载。
   echo 请勿将此 EFI 文件直接刷入 android_esp 或 abl 分区。
   exit /b 0
 )

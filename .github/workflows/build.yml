@@ -8,6 +8,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  efisp_restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld
+      - name: Build payload
+        run: python3 tools/efisp_restore/build.py --output build/efisp_restore
+      - name: Upload restore tool
+        uses: actions/upload-artifact@v4
+        with:
+          name: efisp_restore
+          path: |
+            build/efisp_restore/restore_efisp.py
+            build/efisp_restore/payload.bin
+            build/efisp_restore/payload.json
+
   build:
     runs-on: ubuntu-latest
 

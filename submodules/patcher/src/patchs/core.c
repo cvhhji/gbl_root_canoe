@@ -15,15 +15,11 @@ int32_t patch_abl_gbl(char* buffer, int32_t size) {
     static const uint16_t android_esp[] = {
         'a', 'n', 'd', 'r', 'o', 'i', 'd', '_', 'e', 's', 'p', '_', 'x', 0
     };
-    static const uint16_t ignored_esp[] = {
-        'i', 'g', 'n', 'o', 'r', 'e', 'd', '_', 'e', 's', 'p', '_', 'x', 0
-    };
     target_len = sizeof(android_esp);
     for (int32_t i = 0; i <= size - target_len; ++i) {
         if (memcmp(buffer + i, android_esp, target_len) == 0) {
-            memcpy(buffer + i, ignored_esp, target_len);
-            printf("Android ESP loader: experimental boot chain\n");
-            printf("Disabled Android ESP handoff at 0x%X\n", i);
+            printf("Android ESP layout: EFI boot entry not supported\n");
+            printf("Preserved slot partition name at 0x%X\n", i);
             return 1;
         }
     }

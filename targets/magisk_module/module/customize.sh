@@ -332,7 +332,7 @@ while true; do
       ui_print "$T_PATCH_FAIL"
       abort "patch failed"
     fi
-    if grep -q "Android ESP loader:" "$RUNTIME_DIR/patch.log"; then
+    if grep -q "Android ESP layout:" "$RUNTIME_DIR/patch.log"; then
       abort "Android ESP installation is not supported by this test build / 此测试版尚未支持 Android ESP 安装"
     fi
     if grep -q "Warning: Failed to patch ABL GBL" $RUNTIME_DIR/patch.log; then
