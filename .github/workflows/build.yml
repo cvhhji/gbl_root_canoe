@@ -94,6 +94,8 @@ jobs:
         webroot = Path("artifacts/magisk_module/webroot")
         assert {path.name for path in webroot.iterdir()} == {"index.html"}
         assert not any(path.name.upper() in {"NOTICE", "LICENSE"} for path in Path("artifacts").rglob("*"))
+        ablrepo = Path("artifacts/magisk_module/ablrepo")
+        assert all(path.name in {"abl.img", "abl.sha256"} for path in ablrepo.rglob("*") if path.is_file())
         for target in ("magisk_module", "toolkit_android"):
             binary = (Path("artifacts") / target / "bin/extractfv").read_bytes()
             header = struct.unpack_from("<16sHHIQQQIHHHHHH", binary)
