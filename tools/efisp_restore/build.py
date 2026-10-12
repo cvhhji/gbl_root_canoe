@@ -20,7 +20,8 @@ def main():
              "-I" + str(repo / "submodules/uefi/edk2/MdePkg/Include"),
              "-I" + str(repo / "submodules/uefi/edk2/MdePkg/Include/AArch64")]
     for name in ("entry.S", "loader.c"):
-        subprocess.run(["clang", *flags, "-c", str(root / name), "-o",
+        compile_flags = flags if name == "loader.c" else [flag for flag in flags if flag != "-mgeneral-regs-only"]
+        subprocess.run(["clang", *compile_flags, "-c", str(root / name), "-o",
                         str(args.output / (name + ".o"))], check=True)
     elf = args.output / "payload.elf"
     subprocess.run(["ld.lld", "-T", str(root / "payload.ld"),
