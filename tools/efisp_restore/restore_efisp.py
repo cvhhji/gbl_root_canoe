@@ -10,6 +10,7 @@ PROFILES = {
     "8ed9bcd440a89b51ac76beb9fe24eaabe8689fe9924de487d627c87abf47d2ea": {
         "name": "new_abl", "efi_sha256": "663e89b7c3f5e4335a610090013c4a729ab89317bd0f9452cf5ac0bb5a3d7401",
         "hook": 0x556c, "boot_services": 0xbaa08, "image_handle": 0xba9e8,
+        "blocked": "Boot failure reported after flashing abl_a. Generation is disabled pending startup analysis.",
     },
     "cd4fe25e80e7af320ad49d66e83056776fc012c8de1e3fbb2489fe9766d337d7": {
         "name": "PYB110_17.0.0.152", "efi_sha256": "8e4060ce5b3df61991ec0361ffa3abc0379e3fd3f037dff0b3a5221116ae9812",
@@ -160,6 +161,8 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--payload-dir", type=Path, default=Path(__file__).resolve().parent)
     args = parser.parse_args()
+    if args.output.suffix.lower() != ".img":
+        raise ValueError("The output must be an .img file")
     if args.output.resolve() == args.input.resolve() or any(
         path.exists() for path in (args.output, args.output.with_suffix(".efi"), args.output.with_suffix(".json"))
     ):
@@ -168,6 +171,8 @@ def main():
     profile = PROFILES.get(hashlib.sha256(image).hexdigest())
     if not profile:
         raise ValueError("This exact firmware image has not been reviewed")
+    if profile.get("blocked"):
+        raise ValueError(profile["blocked"])
     symbols = json.loads((args.payload_dir / "payload.json").read_text(encoding="utf-8"))
     payload = (args.payload_dir / "payload.bin").read_bytes()
     if hashlib.sha256(payload).hexdigest() != symbols["sha256"]:
