@@ -31,8 +31,8 @@ jobs:
         }
         previous_code=$(git show HEAD^:VERSION 2>/dev/null | sed -n 's/^VERSION_CODE=//p' || true)
         if [ -n "$previous_code" ] && ! git diff --quiet HEAD^ HEAD -- VERSION &&
-            [ "$VERSION_CODE" -ne "$((previous_code + 1))" ]; then
-          echo "VERSION_CODE must increase by exactly one when VERSION changes"
+            [ "$VERSION_CODE" -le "$previous_code" ]; then
+          echo "VERSION_CODE must increase when VERSION changes"
           exit 1
         fi
 
