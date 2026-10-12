@@ -54,6 +54,17 @@ if ! grep -q 'action == "patch_vendor"' "$JNI/boot/main.cpp"; then
   sed -i 's|    if (action == "cleanup") {|    if (argc > 2 \&\& action == "patch_vendor") {\n        return patch_vendor_boot(argc - 2, argv + 2);\n    } else if (action == "cleanup") {|' "$JNI/boot/main.cpp"
 fi
 
+{
+  printf 'static constexpr char gbl_licenses[] = R"GBL_LICENSE(\n'
+  cat "$ROOT/../../LICENSE" "$ROOT/NOTICE"
+  printf ')GBL_LICENSE";\n'
+} > "$JNI/boot/gbl_licenses.hpp"
+
+if ! grep -q 'gbl_licenses.hpp' "$JNI/boot/main.cpp"; then
+  sed -i '/#include "magiskboot.hpp"/a#include "gbl_licenses.hpp"' "$JNI/boot/main.cpp"
+  sed -i '/^    if (argc > 2 && action == "patch_vendor") {/i\    if (action == "license") {\n        return puts(gbl_licenses) < 0 ? 1 : 0;\n    }\n' "$JNI/boot/main.cpp"
+fi
+
 if ! grep -q 'int patch_vendor_boot' "$JNI/boot/magiskboot.hpp"; then
   sed -i '/int split_image_dtb(const char \*filename, bool skip_decomp = false);/ a\int patch_vendor_boot(int argc, char *argv[]);' "$JNI/boot/magiskboot.hpp"
 fi

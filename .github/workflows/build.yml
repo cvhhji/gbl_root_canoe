@@ -87,12 +87,24 @@ jobs:
         python3 tools/strip_comments.py artifacts --check
         python3 - <<'PY'
         from pathlib import Path
+        import struct
         import subprocess
         from tools.strip_comments import embedded_code
 
         webroot = Path("artifacts/magisk_module/webroot")
         assert {path.name for path in webroot.iterdir()} == {"index.html"}
-        assert not list(Path("artifacts").rglob("NOTICE"))
+        assert not any(path.name.upper() in {"NOTICE", "LICENSE"} for path in Path("artifacts").rglob("*"))
+        for target in ("magisk_module", "toolkit_android"):
+            binary = (Path("artifacts") / target / "bin/extractfv").read_bytes()
+            header = struct.unpack_from("<16sHHIQQQIHHHHHH", binary)
+            sections = [struct.unpack_from("<IIQQQQIIQQ", binary, header[6] + index * header[11])
+                        for index in range(header[12])]
+            names = sections[header[13]]
+            names = binary[names[4]:names[4] + names[5]]
+            assert not any(names[section[0]:].split(b"\0", 1)[0].startswith(b".debug") for section in sections)
+            assert len(binary) < 2 * 1024 * 1024
+        licenses = Path("LICENSE").read_bytes() + Path("submodules/magisk_tools/NOTICE").read_bytes()
+        assert licenses in Path("artifacts/magisk_module/bin/patch_tools").read_bytes()
         html = (webroot / "index.html").read_bytes()
         scripts = [html[start:end] for start, end, suffix in embedded_code(html) if suffix == ".js"]
         assert len(scripts) == 1

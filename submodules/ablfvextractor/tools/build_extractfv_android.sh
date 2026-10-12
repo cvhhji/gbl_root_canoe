@@ -77,7 +77,7 @@ else
         --disable-doc \
         --disable-nls \
         CC="$CC" \
-        CFLAGS="-O2 -fPIC"
+        CFLAGS="-O2 -g0 -fPIC -ffunction-sections -fdata-sections"
 
     make -j$(nproc)
     make install
@@ -93,13 +93,15 @@ echo "[3/3] Compiling extractfv for arm64-v8a..."
 
 mkdir -p "$OUT_DIR"
 
-$CC -O2 -std=c11 \
+$CC -O2 -g0 -std=c11 -ffunction-sections -fdata-sections \
     -Wall -Wextra -Wno-unused-parameter \
     -D__ANDROID__ \
     -I"${LZMA_INSTALL}/include" \
     -o "${OUT_DIR}/extractfv_android" \
     "$SRC" \
     -L"${LZMA_INSTALL}/lib" \
-    -llzma \
+    -llzma -Wl,--gc-sections \
     -static
+
+"${TOOLCHAIN}/bin/llvm-strip" --strip-all "${OUT_DIR}/extractfv_android"
 
