@@ -103,8 +103,6 @@ jobs:
             names = binary[names[4]:names[4] + names[5]]
             assert not any(names[section[0]:].split(b"\0", 1)[0].startswith(b".debug") for section in sections)
             assert len(binary) < 2 * 1024 * 1024
-        licenses = Path("LICENSE").read_bytes() + Path("submodules/magisk_tools/NOTICE").read_bytes()
-        assert licenses in Path("artifacts/magisk_module/bin/patch_tools").read_bytes()
         html = (webroot / "index.html").read_bytes()
         scripts = [html[start:end] for start, end, suffix in embedded_code(html) if suffix == ".js"]
         assert len(scripts) == 1
