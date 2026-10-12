@@ -220,7 +220,7 @@ SfbReadLanguageId (VOID)
   UINTN Index;
   UINTN Pass;
 
-  if (EFI_ERROR (SfbGetBootVolumes (&Volumes, &Count))) {
+  if (EFI_ERROR (SfbLocateVolumes (&Volumes, &Count))) {
     return;
   }
   for (Pass = 0; Pass < 2 && mLanguageId[0] == '\0'; Pass++) {
