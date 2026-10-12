@@ -12,6 +12,9 @@
 
 #include <Uefi.h>
 
+VOID
+AtUiDisableWatchdogs (VOID);
+
 typedef enum {
   AtKeyTimeout = 0,
   AtKeyUp,

@@ -180,7 +180,7 @@ AtUiEnterMenu (
   IN CONST CHAR16 *Title
   )
 {
-  gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  AtUiDisableWatchdogs ();
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_TITLE);
   AtUiClear (4);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
@@ -210,7 +210,7 @@ AtUiBeginScreen (
     Rows = ContentRows + 3 + mText->Lines (Title) + mText->Lines (Subtitle) +
              mText->Lines (L"Vol Up/Down: move   Power: select");
   }
-  gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  AtUiDisableWatchdogs ();
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_TITLE);
   AtUiClear (Rows);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);

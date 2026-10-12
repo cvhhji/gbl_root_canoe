@@ -15,10 +15,12 @@
 
 [Sources]
   AndroidToolsUi.c
+  BootWatchdog.c
 
 [Packages]
   MdePkg/MdePkg.dec
   AndroidToolsPkg/AndroidToolsPkg.dec
+  QcomModulePkg/QcomModulePkg.dec
 
 [LibraryClasses]
   BaseLib
@@ -31,3 +33,4 @@
 
 [Protocols]
   gEfiSimpleTextInProtocolGuid
+  gEfiKernelProtocolGuid

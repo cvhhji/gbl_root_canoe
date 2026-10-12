@@ -90,6 +90,7 @@
 	FatPkg/FatPkg.dec
 
 [LibraryClasses]
+  AndroidToolsUi
 	DxeServicesTableLib
 	UefiLib
 	UefiApplicationEntryPoint
