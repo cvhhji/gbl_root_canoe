@@ -3,7 +3,11 @@ set -euo pipefail
 SCRIPTDIR=$(dirname "$0")
 cd "$SCRIPTDIR"
 
-./bin/extractfv ./images/abl.img -o ./ || { echo "ERROR: extractfv failed"; exit 1; }
+input_image=${1:-./images/abl.img}
+if [ "$#" -eq 0 ] && [ ! -f "$input_image" ] && [ -f ./images/android_esp.img ]; then
+  input_image=./images/android_esp.img
+fi
+./bin/extractfv "$input_image" -o ./ || { echo "ERROR: extractfv failed"; exit 1; }
 if [ ! -f ./LinuxLoader.efi ]; then
   echo "ERROR: extractfv produced no LinuxLoader.efi"
   exit 1
@@ -19,6 +23,16 @@ cat ./patch_log.txt
 if [ ! -f ./efisp/boot.efi ]; then
   echo "ERROR: patch_abl produced no efisp/boot.efi"
   exit 1
+fi
+
+if grep -q "Android ESP loader:" ./patch_log.txt; then
+  echo ""
+  echo "Android ESP test loader saved to efisp/boot.efi."
+  echo "Partition layout and boot-chain installation still need device testing."
+  echo "Do not flash this EFI file to the android_esp or abl partition."
+  echo "新版测试 EFI 已生成：efisp/boot.efi，分区布局和启动链安装方式尚未验证。"
+  echo "请勿将此 EFI 文件直接刷入 android_esp 或 abl 分区。"
+  exit 0
 fi
 
 if grep -q "Warning: Failed to patch ABL GBL" ./patch_log.txt; then

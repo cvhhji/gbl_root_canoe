@@ -38,8 +38,8 @@ bool patch_warning(char* buffer, int32_t size, int32_t global_var_offset) {
             printf("Warning jump source var: 0x%X Matched\n", offset);
             write_instr(buffer,i,change_rt(&d, 31)); // change to CBZ WZR
             printf("Patched CBZ at 0x%X to use WZR, warning disabled\n", i);
-            break;
+            return true;
         }
     }
-    return true;
+    return false;
 }

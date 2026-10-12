@@ -3,7 +3,16 @@ REM change to the directory of this script
 chcp 65001 >nul
 cd /d %~dp0
 
-bin\extractfv images/abl.img
+set "INPUT_IMAGE=%~1"
+if not defined INPUT_IMAGE (
+  set "INPUT_IMAGE=images\abl.img"
+  if not exist images\abl.img if exist images\android_esp.img set "INPUT_IMAGE=images\android_esp.img"
+)
+bin\extractfv "%INPUT_IMAGE%"
+if errorlevel 1 (
+  echo ERROR: extractfv failed
+  exit /b 1
+)
 if not exist extracted\LinuxLoader.efi (
   echo ERROR: extractfv produced no LinuxLoader.efi
   exit /b 1
@@ -19,6 +28,16 @@ type patch_log.txt
 if not exist efisp\boot.efi (
   echo ERROR: patch_abl produced no efisp/boot.efi
   exit /b 1
+)
+
+findstr /C:"Android ESP loader:" patch_log.txt >nul && (
+  echo.
+  echo Android ESP test loader saved to efisp/boot.efi.
+  echo Partition layout and boot-chain installation still need device testing.
+  echo Do not flash this EFI file to the android_esp or abl partition.
+  echo 新版测试 EFI 已生成：efisp/boot.efi，分区布局和启动链安装方式尚未验证。
+  echo 请勿将此 EFI 文件直接刷入 android_esp 或 abl 分区。
+  exit /b 0
 )
 
 set GBL_OK=yes

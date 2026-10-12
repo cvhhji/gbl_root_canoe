@@ -307,6 +307,10 @@ build_patched_efi() {
     return 1
   fi
   cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
+  if grep -q "Android ESP loader:" "$RUNTIME_DIR/patch.log"; then
+    write_log "Android ESP installation is not supported by this test build / 此测试版尚未支持 Android ESP 安装"
+    return 1
+  fi
   [ -s "$RUNTIME_DIR/patched.efi" ] || { write_log "$TEXT_PATCH_FAILED"; return 1; }
 }
 

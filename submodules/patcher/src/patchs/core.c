@@ -12,14 +12,37 @@ int32_t patch_abl_gbl(char* buffer, int32_t size) {
             return 0;
         }
     }
+    static const uint16_t android_esp[] = {
+        'a', 'n', 'd', 'r', 'o', 'i', 'd', '_', 'e', 's', 'p', '_', 'x', 0
+    };
+    static const uint16_t ignored_esp[] = {
+        'i', 'g', 'n', 'o', 'r', 'e', 'd', '_', 'e', 's', 'p', '_', 'x', 0
+    };
+    target_len = sizeof(android_esp);
+    for (int32_t i = 0; i <= size - target_len; ++i) {
+        if (memcmp(buffer + i, android_esp, target_len) == 0) {
+            memcpy(buffer + i, ignored_esp, target_len);
+            printf("Android ESP loader: experimental boot chain\n");
+            printf("Disabled Android ESP handoff at 0x%X\n", i);
+            return 1;
+        }
+    }
     return -1;
 }
 
-static const int16_t Original[] = {
-    -1, 0x00, 0x00, 0x34, 0x28, 0x00, 0x80, 0x52,
-    0x06, 0x00, 0x00, 0x14, 0xE8, -1, 0x40, 0xF9,
-    0x08, 0x01, 0x40, 0x39, 0x1F, 0x01, 0x00, 0x71,
-    0xE8, 0x07, 0x9F, 0x1A, 0x08, 0x79, 0x1F, 0x53
+static const int16_t Original[][32] = {
+    {
+        -1, 0x00, 0x00, 0x34, 0x28, 0x00, 0x80, 0x52,
+        0x06, 0x00, 0x00, 0x14, 0xE8, -1, 0x40, 0xF9,
+        0x08, 0x01, 0x40, 0x39, 0x1F, 0x01, 0x00, 0x71,
+        0xE8, 0x07, 0x9F, 0x1A, 0x08, 0x79, 0x1F, 0x53
+    },
+    {
+        -1, 0x00, 0x00, 0x34, 0x28, 0x00, 0x80, 0x52,
+        0x06, 0x00, 0x00, 0x14, 0xE8, -1, 0x40, 0xF9,
+        0x08, 0x01, 0x40, 0x39, 0x1F, 0x01, 0x00, 0x71,
+        0x48, 0x00, 0x80, 0x52, 0xE8, 0x03, 0x88, 0x1A
+    }
 };
 static const int16_t Patched[] = {
     -1, -1, -1, -1, 0x08, -1, -1, -1,
@@ -30,15 +53,20 @@ static const int16_t Patched[] = {
 
 int32_t patch_abl_bootstate(char* buffer, int32_t size,
                           int8_t* lock_register_num, int32_t* offset) {
-    int32_t pattern_len = sizeof(Original) / sizeof(int16_t);
+    int32_t pattern_len = sizeof(Original[0]) / sizeof(int16_t);
     int32_t patched_count = 0;
     if (size < pattern_len) return 0;
     for (int32_t i = 0; i <= size - pattern_len; ++i) {
-        bool match = true;
-        for (int32_t j = 0; j < pattern_len; ++j) {
-            if (Original[j] != -1 && (uint8_t)buffer[i + j] != (uint8_t)Original[j]) {
-                match = false; break;
+        bool match = false;
+        for (size_t variant = 0; variant < sizeof(Original) / sizeof(Original[0]); ++variant) {
+            bool variant_match = true;
+            for (int32_t j = 0; j < pattern_len; ++j) {
+                if (Original[variant][j] != -1 && (uint8_t)buffer[i + j] != (uint8_t)Original[variant][j]) {
+                    variant_match = false;
+                    break;
+                }
             }
+            if (variant_match) { match = true; break; }
         }
         if (match) {
             *lock_register_num = (int8_t)((uint8_t)buffer[i] & 0x1F);
@@ -174,12 +202,14 @@ int32_t patch_adrl_unlocked_to_locked(char* buffer, int32_t size, uint64_t load_
 #include "patchs/oplus/warning.h"
 #include "patchs/oplus/forceenablefastboot.h"
 bool PatchBuffer(char* data, int32_t size) {
-    if (patch_abl_gbl(data, size) != 0)
+    int32_t gbl_patch = patch_abl_gbl(data, size);
+    if (gbl_patch < 0)
         printf("Warning: Failed to patch ABL GBL\n");
 
     int32_t patched_adrl = patch_adrl_unlocked_to_locked(data, size, 0);
     if (patched_adrl == 0){
         printf("Warning: ADRL triple not found, skipping\n");
+        if (gbl_patch == 1) return false;
         // not critical, continue with other patches
     }
 
@@ -194,6 +224,10 @@ bool PatchBuffer(char* data, int32_t size) {
         printf("Error: Failed to find/patch ABL Boot State\n");
         return 0;
     }
+    if (gbl_patch == 1 && num_patches != 1) {
+        printf("Error: Ambiguous Android ESP boot state (%d matches)\n", num_patches);
+        return false;
+    }
     printf("Anchor offset : 0x%X\n", offset);
     printf("Lock register : W%d\n", (int)lock_register_num);
     printf("Boot patches: %d\n", num_patches);
@@ -202,6 +236,7 @@ bool PatchBuffer(char* data, int32_t size) {
     if (find_ldrB_instructio_reverse(data, size, offset, lock_register_num, &global_var_offset, source_callback) != 0) {
         printf("Warning: Failed to patch LDRB->STRB chain for W%d\n",
                (int)lock_register_num);
+        if (gbl_patch == 1) return false;
     }
     printf("Global variable offset (for warning patch): 0x%X\n", global_var_offset);
     // ===================== 启用去黄字补丁 =====================
@@ -210,11 +245,13 @@ bool PatchBuffer(char* data, int32_t size) {
     //oplus
     if (!patch_warning(data, size, global_var_offset)) {
         printf("OPlus Warning: patch_warning failed\n");
+        if (gbl_patch == 1) return false;
     }
 
     //force enable fastboot for unofficially unlock
     if (!patch_fastboot(data, size, global_var_offset)) {
         printf("OPlus Warning: patch_fastboot failed\n");
+        if (gbl_patch == 1) return false;
     }
     // ==========================================================
 
