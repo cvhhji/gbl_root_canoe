@@ -159,8 +159,8 @@ SfbDrawRow (IN BOOLEAN Selected, IN CONST CHAR16 *Marker, IN CONST CHAR16 *Text)
   UINTN Width = 0;
   UINTN Index = 0;
 
-  if (Columns > Prefix + 3) {
-    Columns -= Prefix;
+  if (Columns > Prefix + 4) {
+    Columns -= Prefix + 1;
     while (Text[Index] != L'\0' && Index < ARRAY_SIZE (Visible) - 4) {
       UINTN CharacterWidth = (Text[Index] < 0x80) ? 1 : 2;
       if (Width + CharacterWidth > Columns) {
