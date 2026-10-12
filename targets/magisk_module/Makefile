@@ -8,7 +8,14 @@ copy_resources:
 		sed -e "s/@VERSION@/$$VERSION/" -e "s/@VERSION_CODE@/$$VERSION_CODE/" \
 		module/module.prop.in > build/module/module.prop
 	rm build/module/module.prop.in
-	[ -d ../../ablrepo ] && cp -r ../../ablrepo ./build/module/ablrepo || true
+	set -e; \
+	for image in ../../ablrepo/*/abl.img; do \
+		[ -f "$$image" ] || continue; \
+		product_dir=$$(dirname "$$image"); \
+		destination="build/module/ablrepo/$$(basename "$$product_dir")"; \
+		mkdir -p "$$destination"; \
+		cp "$$image" "$$product_dir/abl.sha256" "$$destination/"; \
+	done
 submodule_uefi: copy_resources
 	cd ../../submodules/uefi && make build && make tools
 	cp ../../submodules/uefi/build/BDS.efi ./build/module/BDS.efi
