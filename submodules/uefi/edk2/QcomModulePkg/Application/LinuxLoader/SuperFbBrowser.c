@@ -303,6 +303,9 @@ SfbDriverActionMenu (IN EFI_HANDLE   Volume,
       SfbMoveCursor (&Cursor, ARRAY_SIZE (Actions), Key);
       continue;
     }
+    if (Key != SfbKeySelect) {
+      continue;
+    }
 
     if (Cursor == 0) {
       /* Load: start the driver, then connect controllers so it binds. */
@@ -372,6 +375,9 @@ SfbEfiActionMenu (IN EFI_HANDLE   Volume,
     Key = SfbWaitForKey (0);
     if (Key == SfbKeyUp || Key == SfbKeyDown) {
       SfbMoveCursor (&Cursor, ARRAY_SIZE (Actions), Key);
+      continue;
+    }
+    if (Key != SfbKeySelect) {
       continue;
     }
 
@@ -502,6 +508,9 @@ SfbBrowseVolume (IN EFI_HANDLE   Volume,
     Key = SfbWaitForKey (0);
     if (Key == SfbKeyUp || Key == SfbKeyDown) {
       SfbMoveCursor (&Cursor, Count, Key);
+      continue;
+    }
+    if (Key != SfbKeySelect) {
       continue;
     }
 
@@ -660,6 +669,9 @@ SfbRunFileBrowser (VOID)
     Key = SfbWaitForKey (0);
     if (Key == SfbKeyUp || Key == SfbKeyDown) {
       SfbMoveCursor (&Cursor, RowCount, Key);
+      continue;
+    }
+    if (Key != SfbKeySelect) {
       continue;
     }
 

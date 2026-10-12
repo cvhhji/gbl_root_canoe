@@ -105,6 +105,9 @@ SfbAdvChoose (IN CONST CHAR16 *Title,
       SfbMoveCursor (&Cursor, Total, Key);
       continue;
     }
+    if (Key != SfbKeySelect) {
+      continue;
+    }
     if (Cursor < Count) {
       return (INTN)Cursor;
     }

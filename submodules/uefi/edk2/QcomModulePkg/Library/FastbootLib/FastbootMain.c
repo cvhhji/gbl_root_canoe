@@ -512,7 +512,7 @@ EFI_STATUS FastbootInitialize (VOID)
 {
   EFI_STATUS Status = EFI_SUCCESS;
 
-  gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  AtUiDisableWatchdogs ();
 
   DEBUG ((EFI_D_INFO, "Fastboot Build Info: %a %a\n", __DATE__, __TIME__));
 

@@ -99,6 +99,7 @@
 	Ext4Pkg/Ext4Pkg.dec
 
 [LibraryClasses]
+  AndroidToolsUi
 	DxeServicesTableLib
 	UefiLib
 	UefiApplicationEntryPoint

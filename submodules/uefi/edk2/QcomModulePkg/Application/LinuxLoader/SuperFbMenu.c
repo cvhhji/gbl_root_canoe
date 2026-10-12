@@ -19,6 +19,7 @@
 #include <Library/ShutdownServices.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
+#include <AndroidToolsUi.h>
 #include <Protocol/SimpleTextIn.h>
 
 /* Keeps the translation unit legal when the feature is compiled out. */
@@ -136,7 +137,7 @@ SfbBeginScreen (IN CONST CHAR16 *Title, IN CONST CHAR16 *Subtitle, IN UINTN Cont
   UINTN Rows = ContentRows + 3 + SfbTextLines (Title) +
                  SfbTextLines (Subtitle) +
                  SfbTextLines (L"Vol Up/Down: move   Power: select");
-  gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  AtUiDisableWatchdogs ();
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
   SfbClearScreen (Rows);
   SfbPrint (L"%s\r\n", SfbText (Title));
@@ -469,6 +470,9 @@ SfbRunSubMenu (IN EFI_HANDLE   Volume,
 
     /* Same input model as the root menu: volume keys move, power confirms. */
     Key = SfbWaitForKey (0);
+    if (Key == SfbKeyTimeout) {
+      continue;
+    }
 
     if (Key == SfbKeyUp || Key == SfbKeyDown) {
       SfbMoveCursor (&Cursor, Menu->Count, Key);
@@ -537,6 +541,9 @@ SfbRunLanguageMenu (VOID)
     }
     SfbEndScreen (L"Vol Up/Down: move   Power: select");
     Key = SfbWaitForKey (0);
+    if (Key == SfbKeyTimeout) {
+      continue;
+    }
     if (Key == SfbKeyUp || Key == SfbKeyDown) {
       SfbMoveCursor (&Cursor, ARRAY_SIZE (Rows), Key);
       continue;
@@ -584,6 +591,9 @@ SfbRunBootMenu (VOID)
     /* The menu is purely interactive: it waits for a key indefinitely and
      * never launches anything unattended. */
     Key = SfbWaitForKey (0);
+    if (Key == SfbKeyTimeout) {
+      continue;
+    }
 
     if (Key == SfbKeyUp || Key == SfbKeyDown) {
       SfbMoveCursor (&Cursor, Menu.Count, Key);
