@@ -231,6 +231,7 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
      * Volume Up (the official recovery key slot) opens the boot menu; no Volume
      * Up within the window launches the saved default entry.
      */
+    gBS->SetWatchdogTimer (0, 0, 0, NULL);
     MenuRequested = WaitForVolumeUpKey (1000);
     DEBUG ((EFI_D_INFO, "SFB: power-on volume-up detected=%u\n", MenuRequested));
 
@@ -244,6 +245,7 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
       DEBUG ((EFI_D_ERROR, "Unable to start the FAT stack: %r\n", Status));
     }
 
+    SfbInitializeText ();
     if (!MenuRequested) {
       /* No menu key: boot the saved default. This does not return on success;
        * it only comes back if there is no saved default or the launch failed,

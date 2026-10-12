@@ -18,6 +18,7 @@
 #include <Protocol/SimpleTextOut.h>
 
 #include "AndroidToolsUi.h"
+#include "BootMenuText.h"
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a)  (sizeof (a) / sizeof ((a)[0]))
@@ -26,6 +27,68 @@
 #define AT_ATTR_NORMAL    EFI_TEXT_ATTR (EFI_LIGHTGRAY, EFI_BLACK)
 #define AT_ATTR_SELECTED  EFI_TEXT_ATTR (EFI_BLACK, EFI_LIGHTGRAY)
 #define AT_ATTR_TITLE     EFI_TEXT_ATTR (EFI_WHITE, EFI_BLACK)
+
+STATIC EFI_GUID mTextGuid = BOOT_MENU_TEXT_GUID;
+STATIC BOOT_MENU_TEXT *mText;
+
+STATIC VOID
+AtUiInitialize (VOID)
+{
+  if (mText == NULL) {
+    if (EFI_ERROR (gBS->LocateProtocol (&mTextGuid, NULL, (VOID **)&mText)) ||
+        mText == NULL || mText->Revision != 1) {
+      mText = NULL;
+    }
+  }
+}
+
+CONST CHAR16 *
+AtUiText (IN CONST CHAR16 *Text)
+{
+  AtUiInitialize ();
+  return mText != NULL ? mText->Translate (Text) : Text;
+}
+
+STATIC VOID
+AtUiClear (IN UINTN Rows)
+{
+  AtUiInitialize ();
+  if (mText != NULL) {
+    mText->Clear (Rows);
+  } else {
+    gST->ConOut->ClearScreen (gST->ConOut);
+  }
+}
+
+UINTN EFIAPI
+AtUiPrint (IN CONST CHAR16 *Format, ...)
+{
+  CHAR16 Buffer[1024];
+  VA_LIST Marker;
+  UINTN Length;
+
+  VA_START (Marker, Format);
+  Length = UnicodeVSPrint (Buffer, sizeof (Buffer), AtUiText (Format), Marker);
+  VA_END (Marker);
+  if (mText != NULL) {
+    mText->Output (Buffer);
+  } else {
+    gST->ConOut->OutputString (gST->ConOut, Buffer);
+  }
+  return Length;
+}
+
+UINTN EFIAPI
+AtUiFormat (OUT CHAR16 *Buffer, IN UINTN BufferSize, IN CONST CHAR16 *Format, ...)
+{
+  VA_LIST Marker;
+  UINTN Length;
+
+  VA_START (Marker, Format);
+  Length = UnicodeVSPrint (Buffer, BufferSize, AtUiText (Format), Marker);
+  VA_END (Marker);
+  return Length;
+}
 
 /* Seconds to wait for the key that launched us to be released before the
  * input queue is drained. Mirrors SFB_ENTER_MENU_DELAY_S in SuperFbMenu.c:
@@ -117,10 +180,11 @@ AtUiEnterMenu (
   IN CONST CHAR16 *Title
   )
 {
+  gBS->SetWatchdogTimer (0, 0, 0, NULL);
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_TITLE);
-  gST->ConOut->ClearScreen (gST->ConOut);
+  AtUiClear (4);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
-  Print (L"Entering %s\r\n", (Title != NULL) ? Title : L"Menu");
+  AtUiPrint (L"Entering %s\r\n", AtUiText ((Title != NULL) ? Title : L"Menu"));
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_NORMAL);
 
   /* Wait for the launching key to be released... */
@@ -136,18 +200,26 @@ AtUiEnterMenu (
 VOID
 AtUiBeginScreen (
   IN CONST CHAR16 *Title,
-  IN CONST CHAR16 *Subtitle
+  IN CONST CHAR16 *Subtitle,
+  IN UINTN ContentRows
   )
 {
+  UINTN Rows = ContentRows + 5 + (Subtitle != NULL ? 1 : 0);
+  AtUiInitialize ();
+  if (mText != NULL) {
+    Rows = ContentRows + 3 + mText->Lines (Title) + mText->Lines (Subtitle) +
+             mText->Lines (L"Vol Up/Down: move   Power: select");
+  }
+  gBS->SetWatchdogTimer (0, 0, 0, NULL);
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_TITLE);
-  gST->ConOut->ClearScreen (gST->ConOut);
+  AtUiClear (Rows);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
-  Print (L"%s\r\n", Title);
+  AtUiPrint (L"%s\r\n", AtUiText (Title));
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_NORMAL);
   if (Subtitle != NULL) {
-    Print (L"%s\r\n", Subtitle);
+    AtUiPrint (L"%s\r\n", AtUiText (Subtitle));
   }
-  Print (L"\r\n");
+  AtUiPrint (L"\r\n");
 }
 
 VOID
@@ -157,7 +229,7 @@ AtUiEndScreen (
 {
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_NORMAL);
   if (Footer != NULL) {
-    Print (L"\r\n%s\r\n", Footer);
+    AtUiPrint (L"\r\n%s\r\n", AtUiText (Footer));
   }
 }
 
@@ -168,12 +240,18 @@ AtUiDrawRow (
   IN CONST CHAR16 *Text
   )
 {
+  AtUiInitialize ();
+  if (mText != NULL) {
+    mText->DrawRow (Selected, Marker != NULL ? Marker : L" ",
+                     AtUiText (Text != NULL ? Text : L""));
+    return;
+  }
   gST->ConOut->SetAttribute (gST->ConOut,
                              Selected ? AT_ATTR_SELECTED : AT_ATTR_NORMAL);
-  Print (L"%s %s %s", Selected ? L">" : L" ",
+  AtUiPrint (L"%s %s %s", Selected ? L">" : L" ",
          (Marker != NULL) ? Marker : L" ", (Text != NULL) ? Text : L"");
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_NORMAL);
-  Print (L"\r\n");
+  AtUiPrint (L"\r\n");
 }
 
 UINTN
@@ -219,9 +297,9 @@ AtUiShowMessage (
   )
 {
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_TITLE);
-  gST->ConOut->ClearScreen (gST->ConOut);
+  AtUiClear (6);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
-  Print (L"\r\n\r\n  %s\r\n", (Text != NULL) ? Text : L"");
+  AtUiPrint (L"\r\n\r\n  %s\r\n", AtUiText ((Text != NULL) ? Text : L""));
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_NORMAL);
 }
 
@@ -231,9 +309,12 @@ AtUiReportStatus (
   IN EFI_STATUS    Status
   )
 {
+  CHAR16 StatusText[80];
+  UnicodeSPrint (StatusText, sizeof (StatusText), L"%r", Status);
   gST->ConOut->SetAttribute (gST->ConOut, AT_ATTR_NORMAL);
-  Print (L"\r\n%s: %r\r\n", (What != NULL) ? What : L"", Status);
-  Print (L"Press power to continue.\r\n");
+  AtUiPrint (L"\r\n%s: %s\r\n", AtUiText ((What != NULL) ? What : L""),
+               AtUiText (StatusText));
+  AtUiPrint (L"Press power to continue.\r\n");
   AtUiWaitForKey (0);
 }
 
@@ -262,7 +343,7 @@ AtUiRunMenu (
   Visible = (Count < AT_VISIBLE_ROWS) ? Count : AT_VISIBLE_ROWS;
 
   while (TRUE) {
-    AtUiBeginScreen (Title, NULL);
+    AtUiBeginScreen (Title, NULL, Visible);
 
     Start = AtUiWindowStart (Cursor, Count, Visible);
     for (Index = Start; Index < Start + Visible && Index < Count; Index++) {

@@ -75,9 +75,12 @@
 	SuperFbStore.c
 	SuperFbEntries.c
 	SuperFbMenu.c
+	SuperFbText.c
+	SuperFbFont.h
 	SuperFbBrowser.c
 
 [Packages]
+  AndroidToolsPkg/AndroidToolsPkg.dec
 	ArmPkg/ArmPkg.dec
 	MdePkg/MdePkg.dec
 	EmbeddedPkg/EmbeddedPkg.dec
@@ -144,6 +147,7 @@
 	gEfiPartTypeSystemPartGuid
 
 [Protocols]
+  gEfiGraphicsOutputProtocolGuid
 	gEfiSimpleTextInputExProtocolGuid
 	gEfiBlockIoProtocolGuid
 	gEfiLoadedImageProtocolGuid

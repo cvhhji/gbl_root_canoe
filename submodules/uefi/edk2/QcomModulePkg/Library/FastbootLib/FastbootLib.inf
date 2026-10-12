@@ -95,6 +95,7 @@
   GCC:*_*_*_CC_FLAGS = $(LLVM_ENABLE_SAFESTACK) $(LLVM_SAFESTACK_USE_PTR) $(LLVM_SAFESTACK_COLORING)
 
 [Packages]
+  AndroidToolsPkg/AndroidToolsPkg.dec
   ArmPkg/ArmPkg.dec
   EmbeddedPkg/EmbeddedPkg.dec
   MdePkg/MdePkg.dec
@@ -102,6 +103,7 @@
   QcomModulePkg/QcomModulePkg.dec
 
 [LibraryClasses]
+  AndroidToolsUi
   UefiApplicationEntryPoint
   UefiLib
   PcdLib

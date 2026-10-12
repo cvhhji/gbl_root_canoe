@@ -290,10 +290,10 @@ SfbDriverActionMenu (IN EFI_HANDLE   Volume,
     SFB_KEY     Key;
     EFI_STATUS  Status;
 
-    SfbBeginScreen (L"EFI Driver", FullPath);
+    SfbBeginScreen (L"EFI Driver", FullPath, ARRAY_SIZE (Actions));
 
     for (Index = 0; Index < ARRAY_SIZE (Actions); Index++) {
-      SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", Actions[Index]);
+      SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (Actions[Index]));
     }
 
     SfbEndScreen (L"Vol Up/Down: move   Power: select");
@@ -361,10 +361,10 @@ SfbEfiActionMenu (IN EFI_HANDLE   Volume,
     UINTN    Index;
     SFB_KEY  Key;
 
-    SfbBeginScreen (L"EFI Application", FullPath);
+    SfbBeginScreen (L"EFI Application", FullPath, ARRAY_SIZE (Actions));
 
     for (Index = 0; Index < ARRAY_SIZE (Actions); Index++) {
-      SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", Actions[Index]);
+      SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (Actions[Index]));
     }
 
     SfbEndScreen (L"Vol Up/Down: move   Power: select");
@@ -465,7 +465,7 @@ SfbBrowseVolume (IN EFI_HANDLE   Volume,
       Reload = FALSE;
     }
 
-    SfbBeginScreen (VolumeLabel, Path);
+    SfbBeginScreen (VolumeLabel, Path, MIN (Count, SFB_VISIBLE_ROWS) + 2);
 
     Start = SfbWindowStart (Cursor, Count, SFB_VISIBLE_ROWS);
     Last = Start + SFB_VISIBLE_ROWS;
@@ -488,10 +488,10 @@ SfbBrowseVolume (IN EFI_HANDLE   Volume,
     }
 
     if (Last < Count) {
-      Print (L"    ... %u more\r\n", (UINT32)(Count - Last));
+      SfbPrint (L"    ... %u more\r\n", (UINT32)(Count - Last));
     }
     if (Truncated) {
-      Print (L"    (directory has more than %u entries; rest not shown)\r\n",
+      SfbPrint (L"    (directory has more than %u entries; rest not shown)\r\n",
              (UINT32)SFB_MAX_DIR_ENTRIES);
     }
 
@@ -606,10 +606,10 @@ SfbRunFileBrowser (VOID)
     }
 
     if (Label[0] == L'\0') {
-      UnicodeSPrint (Rows[Index].Label, sizeof (Rows[Index].Label),
+      SfbFormat (Rows[Index].Label, sizeof (Rows[Index].Label),
                      L"Volume %u", (UINT32)Index);
     } else {
-      UnicodeSPrint (Rows[Index].Label, sizeof (Rows[Index].Label),
+      SfbFormat (Rows[Index].Label, sizeof (Rows[Index].Label),
                      L"Volume %u: %s", (UINT32)Index, Label);
     }
   }
@@ -622,7 +622,8 @@ SfbRunFileBrowser (VOID)
     UINTN    Last;
     SFB_KEY  Key;
 
-    SfbBeginScreen (L"EFI Program Selector", L"Choose a FAT32 volume to browse.");
+    SfbBeginScreen (L"EFI Program Selector", L"Choose a FAT32 volume to browse.",
+                     MIN (RowCount, SFB_VISIBLE_ROWS) + 1);
 
     Start = SfbWindowStart (Cursor, RowCount, SFB_VISIBLE_ROWS);
     Last = Start + SFB_VISIBLE_ROWS;
@@ -632,14 +633,14 @@ SfbRunFileBrowser (VOID)
 
     for (Index = Start; Index < Last; Index++) {
       if (Index == VolumeCount) {
-        SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", L"Back");
+        SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (L"Back"));
       } else {
         SfbDrawRow ((BOOLEAN)(Index == Cursor), L"[V]", Rows[Index].Label);
       }
     }
 
     if (Last < RowCount) {
-      Print (L"    ... %u more\r\n", (UINT32)(RowCount - Last));
+      SfbPrint (L"    ... %u more\r\n", (UINT32)(RowCount - Last));
     }
 
     SfbEndScreen (L"Vol Up/Down: move   Power: select");

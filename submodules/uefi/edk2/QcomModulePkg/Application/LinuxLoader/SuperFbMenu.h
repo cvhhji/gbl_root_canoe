@@ -73,6 +73,7 @@ typedef enum {
   /* Built-in entries; no backing file, handled in code. */
   SfbEntryFastboot,
   SfbEntrySelector,
+  SfbEntryLanguage,
   /* "Back" row at the foot of a submenu: returns to the parent menu. */
   SfbEntryBack,
   /* Power management actions offered at the end of the menu and on the
@@ -102,6 +103,7 @@ typedef struct {
 typedef struct {
   SFB_BOOT_ENTRY  Entry[SFB_MAX_ENTRIES];
   UINTN           Count;
+  UINTN           EntryLimit;
   /* Entry the menu highlights first, or SFB_NO_INDEX. This may be the stored
    * default or, absent one, the first on-device entry used as a starting
    * point for the cursor and the "*" marker. */
@@ -220,10 +222,11 @@ SfbGetVolumeLabel (IN EFI_FILE_PROTOCOL *Root,
  * partition, which is the only part of it that is safe to touch.
  */
 #define SFB_STORE_SLOT_BYTES  1024
-#define SFB_STORE_SLOTS       2
+#define SFB_STORE_SLOTS       3
 
-#define SFB_STORE_DEFAULT  0   /* the entry the menu timeout launches */
-#define SFB_STORE_CUSTOM   1   /* the single user-added menu entry */
+#define SFB_STORE_DEFAULT  1   /* the entry the menu timeout launches */
+#define SFB_STORE_CUSTOM   2   /* the single user-added menu entry */
+#define SFB_STORE_LANGUAGE 0
 
 /*
  * Replace one record. Text is NUL-terminated ASCII of at most
@@ -366,12 +369,13 @@ SfbWaitForKey (IN UINT32 TimeoutMs);
 #define SFB_VISIBLE_ROWS  12
 
 VOID
-SfbBeginScreen (IN CONST CHAR16 *Title, IN CONST CHAR16 *Subtitle OPTIONAL);
+SfbBeginScreen (IN CONST CHAR16 *Title, IN CONST CHAR16 *Subtitle OPTIONAL,
+                IN UINTN ContentRows);
 
 VOID
 SfbEndScreen (IN CONST CHAR16 *Footer);
 
-VOID
+VOID EFIAPI
 SfbDrawRow (IN BOOLEAN      Selected,
             IN CONST CHAR16 *Marker,
             IN CONST CHAR16 *Text);
@@ -386,5 +390,41 @@ SfbMoveCursor (IN OUT UINTN *Cursor, IN UINTN Count, IN SFB_KEY Key);
 /* Show a status line and hold the screen until the user acknowledges it. */
 VOID
 SfbReportStatus (IN CONST CHAR16 *What, IN EFI_STATUS Status);
+
+VOID
+SfbShowEnteringScreen (IN CONST CHAR16 *What);
+
+VOID
+SfbDebounceMenuExit (VOID);
+
+VOID
+SfbInitializeText (VOID);
+
+BOOLEAN
+SfbChineseAvailable (VOID);
+
+BOOLEAN
+SfbIsChinese (VOID);
+
+UINTN
+SfbTextColumns (VOID);
+
+UINTN EFIAPI
+SfbTextLines (IN CONST CHAR16 *Text);
+
+EFI_STATUS
+SfbSetChinese (IN BOOLEAN Chinese);
+
+CONST CHAR16 * EFIAPI
+SfbText (IN CONST CHAR16 *Text);
+
+VOID EFIAPI
+SfbClearScreen (IN UINTN Rows);
+
+UINTN EFIAPI
+SfbPrint (IN CONST CHAR16 *Format, ...);
+
+UINTN EFIAPI
+SfbFormat (OUT CHAR16 *Buffer, IN UINTN BufferSize, IN CONST CHAR16 *Format, ...);
 
 #endif
