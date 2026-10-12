@@ -1,8 +1,10 @@
 #include "SuperFbMenu.h"
 #include "SuperFbFont.h"
+#include <BootMenuText.h>
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/MemoryAllocationLib.h>
 #include <Library/PrintLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/GraphicsOutput.h>
@@ -11,7 +13,17 @@ STATIC CONST struct {
   CONST CHAR16 *English;
   CONST CHAR16 *Chinese;
 } mText[] = {
+  { L"Android", L"安卓" },
+  { L"Android backup", L"安卓备份" },
+  { L"Android Tools", L"安卓工具" },
+  { L"Reboot Tools", L"重启工具" },
+  { L"BL Tools", L"BL 工具" },
+  { L"ARB Tools", L"防回滚工具" },
+  { L"Custom entry", L"自定义启动项" },
+  { L"Enter EFI Program Selector", L"选择 EFI 程序" },
+  { L"Language / 语言", L"Language / 语言" },
   { L"Boot Menu", L"启动菜单" },
+  { L"FASTBOOT MODE", L"FASTBOOT 模式" },
   { L"Advanced", L"高级选项" },
   { L"Power Off", L"关机" },
   { L"Restart", L"重启" },
@@ -97,7 +109,87 @@ STATIC CONST struct {
   { L"The host may now mount the disk.", L"电脑现在可以挂载此磁盘。" },
   { L"  Size: %Lu bytes (%Lu MiB)\r\n", L"  大小：%Lu 字节（%Lu MiB）\r\n" },
   { L"  Volume Down ends this session.\r\n", L"  按音量下键结束本次连接。\r\n" },
-  { L"Volume Down: stop export", L"音量下键：停止导出" }
+  { L"Volume Down: stop export", L"音量下键：停止导出" },
+  { L"Exit to menu", L"返回菜单" },
+  { L"Returning to Boot Menu...", L"正在返回启动菜单..." },
+  { L"Reboot to Fastbootd", L"重启到 Fastbootd" },
+  { L"Reboot to Bootloader", L"重启到 Bootloader" },
+  { L"Reboot to Recovery", L"重启到 Recovery" },
+  { L"Reboot to System", L"重启到系统" },
+  { L"Rebooting to Fastbootd...", L"正在重启到 Fastbootd..." },
+  { L"Rebooting to Bootloader...", L"正在重启到 Bootloader..." },
+  { L"Rebooting to Recovery...", L"正在重启到 Recovery..." },
+  { L"Rebooting to System...", L"正在重启到系统..." },
+  { L"Vol+/- move, power select", L"音量键：移动   电源键：选择" },
+  { L"Vol+/- scroll, power to return", L"音量键：翻页   电源键：返回" },
+  { L"Write BCB", L"写入启动控制信息" },
+  { L"Cancelled", L"已取消" },
+  { L"State unchanged", L"状态未改变" },
+  { L"%s - writes DeviceInfo. May cause data loss.", L"%s：写入 DeviceInfo，可能导致数据丢失。" },
+  { L"\r\nPower = confirm   Vol+/- = cancel\r\n", L"\r\n电源键：确认   音量键：取消\r\n" },
+  { L"Applying...", L"正在应用..." },
+  { L"Write DeviceInfo", L"写入设备信息" },
+  { L"Read DeviceInfo", L"读取设备信息" },
+  { L"Done. Reboot for the change to take effect.", L"已完成，重启后生效。" },
+  { L"Unlock Device", L"解锁设备" },
+  { L"Lock Device", L"锁定设备" },
+  { L"Unlock Critical", L"解锁关键分区" },
+  { L"Lock Critical", L"锁定关键分区" },
+  { L"DeviceInfo not initialized", L"设备信息尚未初始化" },
+  { L"BL Tools  Unlock:%s  Crit:%s", L"BL 工具  设备解锁：%s  关键分区解锁：%s" },
+  { L"on", L"是" },
+  { L"off", L"否" },
+  { L"Alloc", L"分配内存" },
+  { L"Slot %2u: 0x%016lx", L"槽位 %2u：0x%016lx" },
+  { L"All rollback slots are 0", L"所有防回滚槽位的值均为 0" },
+  { L"ARB Rollback Index (non-zero)", L"防回滚索引（非零项）" },
+  { L"Reset ARB Index", L"重置防回滚索引" },
+  { L"WARNING: this writes to the TEE and may lose keys.\r\n", L"警告：此操作会写入 TEE，可能导致密钥丢失。\r\n" },
+  { L"\r\n   Confirm %u/5\r\n", L"\r\n   第 %u/5 次确认\r\n" },
+  { L"Reset cancelled", L"已取消重置" },
+  { L"Resetting ARB index...", L"正在重置防回滚索引..." },
+  { L"DeviceInfo magic", L"设备信息标识" },
+  { L"ARB index reset complete", L"防回滚索引已重置" },
+  { L"Get ARB Value", L"查看防回滚值" },
+  { L"Reset ARB Value", L"重置防回滚值" },
+  { L"virtual(LUN%u:%s:%u)", L"虚拟磁盘（LUN%u：%s：%u）" },
+  { L"virtual(efisp.fat)", L"虚拟磁盘（efisp.fat）" },
+  { L"Menu", L"菜单" },
+  { L"Success", L"成功" },
+  { L"Warning Unknown Glyph", L"警告：未知字形" },
+  { L"Warning Delete Failure", L"警告：删除失败" },
+  { L"Warning Write Failure", L"警告：写入失败" },
+  { L"Warning Buffer Too Small", L"警告：缓冲区过小" },
+  { L"Warning Stale Data", L"警告：数据已过期" },
+  { L"Load Error", L"加载错误" },
+  { L"Invalid Parameter", L"参数无效" },
+  { L"Unsupported", L"不支持" },
+  { L"Bad Buffer Size", L"缓冲区大小错误" },
+  { L"Buffer Too Small", L"缓冲区过小" },
+  { L"Not Ready", L"尚未就绪" },
+  { L"Device Error", L"设备错误" },
+  { L"Write Protected", L"写保护" },
+  { L"Out of Resources", L"资源不足" },
+  { L"Volume Corrupt", L"文件系统损坏" },
+  { L"Volume Full", L"存储空间已满" },
+  { L"No Media", L"未插入存储介质" },
+  { L"Media changed", L"存储介质已变更" },
+  { L"Not Found", L"未找到" },
+  { L"Access Denied", L"访问被拒绝" },
+  { L"No Response", L"无响应" },
+  { L"No mapping", L"无可用映射" },
+  { L"Time out", L"操作超时" },
+  { L"Not started", L"尚未启动" },
+  { L"Already started", L"已启动" },
+  { L"Aborted", L"已中止" },
+  { L"Protocol Error", L"协议错误" },
+  { L"Security Violation", L"安全验证失败" },
+  { L"ICMP Error", L"ICMP 错误" },
+  { L"TFTP Error", L"TFTP 错误" },
+  { L"Incompatible Version", L"版本不兼容" },
+  { L"CRC Error", L"CRC 校验错误" },
+  { L"End of Media", L"已到存储介质末尾" },
+  { L"End of File", L"已到文件末尾" },
 };
 
 STATIC EFI_GRAPHICS_OUTPUT_PROTOCOL *mGraphics;
@@ -106,18 +198,86 @@ STATIC BOOLEAN mChinese;
 STATIC UINTN mScale;
 STATIC UINTN mColumn;
 STATIC UINTN mRow;
+STATIC UINTN mLeft;
+STATIC UINTN mTop;
+STATIC UINTN mWidth;
+STATIC UINTN mHeight;
+STATIC CHAR8 mLanguageId[40];
 STATIC EFI_GRAPHICS_OUTPUT_BLT_PIXEL mPixels[64 * 64];
+
+STATIC VOID EFIAPI SfbProtocolOutput (IN CONST CHAR16 *Text);
+STATIC EFI_GUID mTextGuid = BOOT_MENU_TEXT_GUID;
+STATIC EFI_HANDLE mTextHandle;
+STATIC BOOT_MENU_TEXT mTextProtocol = {
+  1, SfbText, SfbTextLines, SfbClearScreen, SfbProtocolOutput, SfbDrawRow
+};
+
+STATIC VOID
+SfbReadLanguageId (VOID)
+{
+  EFI_HANDLE *Volumes = NULL;
+  UINTN Count = 0;
+  UINTN Index;
+  UINTN Pass;
+
+  if (EFI_ERROR (SfbGetBootVolumes (&Volumes, &Count))) {
+    return;
+  }
+  for (Pass = 0; Pass < 2 && mLanguageId[0] == '\0'; Pass++) {
+    for (Index = 0; Index < Count; Index++) {
+      EFI_FILE_PROTOCOL *Root = NULL;
+      EFI_FILE_PROTOCOL *File = NULL;
+      CHAR16 Path[40];
+      CHAR8 Id[40];
+      UINTN Bytes = sizeof (Id) - 1;
+      UINTN Char;
+      EFI_STATUS Status;
+
+      if (SfbIsExt4Volume (Volumes[Index]) != (BOOLEAN)(Pass == 0) ||
+          EFI_ERROR (SfbOpenVolumeRoot (Volumes[Index], &Root))) {
+        continue;
+      }
+      UnicodeSPrint (Path, sizeof (Path), L"%s\\MENU.ID",
+                      SfbVolumeRootPrefix (Volumes[Index]));
+      Status = Root->Open (Root, &File, Path, EFI_FILE_MODE_READ, 0);
+      if (!EFI_ERROR (Status)) {
+        Status = File->Read (File, &Bytes, Id);
+        File->Close (File);
+        if (!EFI_ERROR (Status) && (Bytes == 36 || (Bytes == 37 && Id[36] == '\n'))) {
+          for (Char = 0; Char < 36; Char++) {
+            if (!((Id[Char] >= '0' && Id[Char] <= '9') ||
+                  (Id[Char] >= 'a' && Id[Char] <= 'f') || Id[Char] == '-')) {
+              break;
+            }
+          }
+          if (Char == 36) {
+            CopyMem (mLanguageId, Id, 36);
+            mLanguageId[36] = '\0';
+          }
+        }
+      }
+      Root->Close (Root);
+      if (mLanguageId[0] != '\0') {
+        break;
+      }
+    }
+  }
+  FreePool (Volumes);
+}
 
 VOID
 SfbInitializeText (VOID)
 {
-  CHAR8 Saved[16];
+  CHAR8 Saved[64];
+  CHAR8 Expected[64];
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL Pixel;
 
   if (mInitialized) {
     return;
   }
   mInitialized = TRUE;
+  gBS->InstallProtocolInterface (&mTextHandle, &mTextGuid,
+                                  EFI_NATIVE_INTERFACE, &mTextProtocol);
   if (EFI_ERROR (gBS->HandleProtocol (gST->ConsoleOutHandle,
                                       &gEfiGraphicsOutputProtocolGuid,
                                       (VOID **)&mGraphics))) {
@@ -136,13 +296,20 @@ SfbInitializeText (VOID)
     mGraphics = NULL;
     return;
   }
-  mScale = MIN (4, MIN (mGraphics->Mode->Info->HorizontalResolution / 360,
-                         mGraphics->Mode->Info->VerticalResolution / 480));
+  mScale = MIN (4, MIN (mGraphics->Mode->Info->HorizontalResolution / 480,
+                         mGraphics->Mode->Info->VerticalResolution / 600));
   if (mScale == 0) {
     mScale = 1;
   }
-  if (!EFI_ERROR (SfbStoreRead (SFB_STORE_LANGUAGE, Saved, sizeof (Saved)))) {
-    mChinese = (BOOLEAN)(AsciiStrCmp (Saved, "SFBL1|zh") == 0);
+  mWidth = (mGraphics->Mode->Info->HorizontalResolution * 9 / 10 / (8 * mScale)) * (8 * mScale);
+  mHeight = 4 * 20 * mScale;
+  mLeft = (mGraphics->Mode->Info->HorizontalResolution - mWidth) / 2;
+  mTop = (mGraphics->Mode->Info->VerticalResolution - mHeight) / 2;
+  SfbReadLanguageId ();
+  if (mLanguageId[0] != '\0' &&
+      !EFI_ERROR (SfbStoreRead (SFB_STORE_LANGUAGE, Saved, sizeof (Saved)))) {
+    AsciiSPrint (Expected, sizeof (Expected), "SFBL2|zh|%a", mLanguageId);
+    mChinese = (BOOLEAN)(AsciiStrCmp (Saved, Expected) == 0);
   }
 }
 
@@ -168,29 +335,72 @@ SfbTextColumns (VOID)
 
   SfbInitializeText ();
   if (mGraphics != NULL) {
-    return mGraphics->Mode->Info->HorizontalResolution / (8 * mScale);
+    return mWidth / (8 * mScale);
   }
   gST->ConOut->QueryMode (gST->ConOut, gST->ConOut->Mode->Mode, &Columns, &Rows);
-  return Columns;
+  return MAX (Columns, 1);
+}
+
+UINTN EFIAPI
+SfbTextLines (IN CONST CHAR16 *Text)
+{
+  UINTN Columns = SfbTextColumns ();
+  UINTN Width = 0;
+  UINTN Lines = 1;
+
+  Text = SfbText (Text);
+  if (Text == NULL) {
+    return 0;
+  }
+  for (; *Text != L'\0'; Text++) {
+    UINTN CharacterWidth;
+    if (*Text == L'\r') {
+      continue;
+    }
+    if (*Text == L'\n') {
+      Lines++;
+      Width = 0;
+      continue;
+    }
+    CharacterWidth = *Text < 0x80 ? 1 : 2;
+    if (Width + CharacterWidth > Columns) {
+      Lines++;
+      Width = 0;
+    }
+    Width += CharacterWidth;
+  }
+  return Lines;
 }
 
 EFI_STATUS
 SfbSetChinese (IN BOOLEAN Chinese)
 {
+  CHAR8 Record[64];
   SfbInitializeText ();
   if (Chinese && mGraphics == NULL) {
     return EFI_UNSUPPORTED;
   }
   mChinese = Chinese;
-  return SfbStoreWrite (SFB_STORE_LANGUAGE, Chinese ? "SFBL1|zh" : "SFBL1|en");
+  if (mLanguageId[0] == '\0') {
+    return EFI_NOT_FOUND;
+  }
+  AsciiSPrint (Record, sizeof (Record), "SFBL2|%a|%a",
+                Chinese ? "zh" : "en", mLanguageId);
+  return SfbStoreWrite (SFB_STORE_LANGUAGE, Record);
 }
 
-CONST CHAR16 *
+CONST CHAR16 * EFIAPI
 SfbText (IN CONST CHAR16 *Text)
 {
   UINTN Index;
 
-  if (!SfbIsChinese () || Text == NULL) {
+  if (Text == NULL) {
+    return Text;
+  }
+  if (StrCmp (Text, L"Language") == 0 || StrCmp (Text, L"Language / 语言") == 0) {
+    return SfbChineseAvailable () ? L"Language / 语言" : L"Language";
+  }
+  if (!SfbIsChinese ()) {
     return Text;
   }
   for (Index = 0; Index < ARRAY_SIZE (mText); Index++) {
@@ -237,8 +447,8 @@ SfbColor (IN UINTN Color)
   return Pixel;
 }
 
-VOID
-SfbClearScreen (VOID)
+VOID EFIAPI
+SfbClearScreen (IN UINTN Rows)
 {
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL Background;
 
@@ -247,6 +457,11 @@ SfbClearScreen (VOID)
   mColumn = 0;
   mRow = 0;
   if (mGraphics != NULL) {
+    mHeight = MIN (Rows * 20 * mScale,
+                    mGraphics->Mode->Info->VerticalResolution / (20 * mScale) * (20 * mScale));
+    mHeight = MAX (mHeight, 20 * mScale);
+    mLeft = (mGraphics->Mode->Info->HorizontalResolution - mWidth) / 2;
+    mTop = (mGraphics->Mode->Info->VerticalResolution - mHeight) / 2;
     Background = SfbColor ((gST->ConOut->Mode->Attribute >> 4) & 7);
     mGraphics->Blt (mGraphics, &Background, EfiBltVideoFill, 0, 0, 0, 0,
                      mGraphics->Mode->Info->HorizontalResolution,
@@ -257,8 +472,8 @@ SfbClearScreen (VOID)
 STATIC EFI_STATUS
 SfbNewLine (VOID)
 {
-  UINTN Height = mGraphics->Mode->Info->VerticalResolution;
-  UINTN Width = mGraphics->Mode->Info->HorizontalResolution;
+  UINTN Height = mHeight;
+  UINTN Width = mWidth;
   UINTN Line = 20 * mScale;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL Background;
   EFI_STATUS Status;
@@ -269,14 +484,14 @@ SfbNewLine (VOID)
     return EFI_SUCCESS;
   }
   Status = mGraphics->Blt (mGraphics, NULL, EfiBltVideoToVideo,
-                            0, Line, 0, 0, Width, Height - Line, 0);
+                            mLeft, mTop + Line, mLeft, mTop, Width, Height - Line, 0);
   if (EFI_ERROR (Status)) {
     return Status;
   }
   mRow = Height - Line;
   Background = SfbColor ((gST->ConOut->Mode->Attribute >> 4) & 7);
   return mGraphics->Blt (mGraphics, &Background, EfiBltVideoFill,
-                          0, 0, 0, mRow, Width, Line, 0);
+                          0, 0, mLeft, mTop + mRow, Width, Line, 0);
 }
 
 STATIC EFI_STATUS
@@ -308,7 +523,7 @@ SfbOutputText (IN CONST CHAR16 *Text)
       continue;
     }
     Width = ((*Text < 0x80) ? 8 : 16) * mScale;
-    if (mColumn + Width > mGraphics->Mode->Info->HorizontalResolution) {
+    if (mColumn + Width > mWidth) {
       Status = SfbNewLine ();
       if (EFI_ERROR (Status)) {
         return Status;
@@ -323,7 +538,7 @@ SfbOutputText (IN CONST CHAR16 *Text)
       }
     }
     Status = mGraphics->Blt (mGraphics, mPixels, EfiBltBufferToVideo,
-                              0, 0, mColumn, mRow, Width, Height, 0);
+                              0, 0, mLeft + mColumn, mTop + mRow, Width, Height, 0);
     if (EFI_ERROR (Status)) {
       return Status;
     }
@@ -343,16 +558,21 @@ SfbPrint (IN CONST CHAR16 *Format, ...)
   VA_START (Marker, Format);
   Length = UnicodeVSPrint (Buffer, sizeof (Buffer), SfbText (Format), Marker);
   VA_END (Marker);
+  SfbProtocolOutput (Buffer);
+  return Length;
+}
+
+STATIC VOID EFIAPI
+SfbProtocolOutput (IN CONST CHAR16 *Text)
+{
   if (mGraphics == NULL) {
-    gST->ConOut->OutputString (gST->ConOut, Buffer);
-  } else if (EFI_ERROR (SfbOutputText (Buffer))) {
+    gST->ConOut->OutputString (gST->ConOut, (CHAR16 *)Text);
+  } else if (EFI_ERROR (SfbOutputText (Text))) {
     mGraphics = NULL;
     mChinese = FALSE;
     gST->ConOut->ClearScreen (gST->ConOut);
     gST->ConOut->OutputString (gST->ConOut, L"Display drawing failed. English console restored.\r\n");
-    return 0;
   }
-  return Length;
 }
 
 UINTN

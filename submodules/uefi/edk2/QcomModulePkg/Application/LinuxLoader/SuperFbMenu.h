@@ -429,12 +429,13 @@ SfbWaitForKey (IN UINT32 TimeoutMs);
 #define SFB_VISIBLE_ROWS  12
 
 VOID
-SfbBeginScreen (IN CONST CHAR16 *Title, IN CONST CHAR16 *Subtitle OPTIONAL);
+SfbBeginScreen (IN CONST CHAR16 *Title, IN CONST CHAR16 *Subtitle OPTIONAL,
+                IN UINTN ContentRows);
 
 VOID
 SfbEndScreen (IN CONST CHAR16 *Footer);
 
-VOID
+VOID EFIAPI
 SfbDrawRow (IN BOOLEAN      Selected,
             IN CONST CHAR16 *Marker,
             IN CONST CHAR16 *Text);
@@ -462,14 +463,17 @@ SfbIsChinese (VOID);
 UINTN
 SfbTextColumns (VOID);
 
+UINTN EFIAPI
+SfbTextLines (IN CONST CHAR16 *Text);
+
 EFI_STATUS
 SfbSetChinese (IN BOOLEAN Chinese);
 
-CONST CHAR16 *
+CONST CHAR16 * EFIAPI
 SfbText (IN CONST CHAR16 *Text);
 
-VOID
-SfbClearScreen (VOID);
+VOID EFIAPI
+SfbClearScreen (IN UINTN Rows);
 
 UINTN
 EFIAPI

@@ -187,7 +187,7 @@ SfbUsbMsdExportBlkIo (IN EFI_BLOCK_IO_PROTOCOL *BlkIo,
    * before the drain hands control to the export loop.
    */
   SfbBeginScreen ((Title != NULL) ? Title : L"USB Mass Storage",
-                  L"The host may now mount the disk.");
+                  L"The host may now mount the disk.", 6);
   if (Detail != NULL && Detail[0] != L'\0') {
     SfbPrint (L"  %s\r\n", Detail);
   }

@@ -46,7 +46,8 @@ AtUiWaitForKey (
 VOID
 AtUiBeginScreen (
   IN CONST CHAR16 *Title,
-  IN CONST CHAR16 *Subtitle OPTIONAL
+  IN CONST CHAR16 *Subtitle OPTIONAL,
+  IN UINTN ContentRows
   );
 
 /** Print a footer line. **/
@@ -109,5 +110,14 @@ AtUiRunMenu (
   OUT UINTN         *Selected,
   IN  CONST CHAR16  *Footer OPTIONAL
   );
+
+CONST CHAR16 *
+AtUiText (IN CONST CHAR16 *Text);
+
+UINTN EFIAPI
+AtUiPrint (IN CONST CHAR16 *Format, ...);
+
+UINTN EFIAPI
+AtUiFormat (OUT CHAR16 *Buffer, IN UINTN BufferSize, IN CONST CHAR16 *Format, ...);
 
 #endif /* __ANDROID_TOOLS_UI_H__ */

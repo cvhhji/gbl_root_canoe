@@ -288,7 +288,10 @@ current_pid() {
 persist_mounted() { grep -q " $PERSIST_MNT " /proc/mounts; }
 
 place_efisp_tree_to() {
-  run_quiet "$TEXT_EFISP_WRITE_FAILED" cp -r "$MODDIR/efisp/." "$1/"
+  run_quiet "$TEXT_EFISP_WRITE_FAILED" cp -r "$MODDIR/efisp/." "$1/" || return 1
+  if [ ! -s "$1/MENU.ID" ]; then
+    run_quiet "$TEXT_EFISP_WRITE_FAILED" sh -c 'cat /proc/sys/kernel/random/uuid > "$1/MENU.ID"' sh "$1" || return 1
+  fi
 }
 
 build_patched_efi() {

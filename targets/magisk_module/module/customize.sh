@@ -379,6 +379,9 @@ while true; do
       abort "efisp write failed"
     fi
     cp -r "$MODPATH/efisp/." "$EFISP_DIR/" || { ui_print "$T_EFISP_WRITE_FAIL"; abort "efisp write failed"; }
+    if [ ! -s "$EFISP_DIR/MENU.ID" ]; then
+      cat /proc/sys/kernel/random/uuid > "$EFISP_DIR/MENU.ID" || abort "menu settings init failed"
+    fi
     sync
 
     ui_print "$T_FLASH_BDS"
@@ -395,6 +398,9 @@ while true; do
     rm -rf "$RUNTIME_DIR"
     break
   elif [ "$keyevent" = "down" ]; then
+    if [ -d "$EFISP_DIR" ] && [ ! -s "$EFISP_DIR/MENU.ID" ]; then
+      cat /proc/sys/kernel/random/uuid > "$EFISP_DIR/MENU.ID" || abort "menu settings init failed"
+    fi
     ui_print "$T_SEL_NO"
     ui_print "$T_DONE_NO"
     rm -rf "$RUNTIME_DIR"

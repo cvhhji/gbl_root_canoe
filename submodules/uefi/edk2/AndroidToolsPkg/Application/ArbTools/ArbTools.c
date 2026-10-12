@@ -152,7 +152,7 @@ AtShowArbValues (
       AtUiReportStatus (L"Alloc", EFI_OUT_OF_RESOURCES);
       goto Out;
     }
-    UnicodeSPrint (Lines[Used], 40 * sizeof (CHAR16),
+    AtUiFormat (Lines[Used], 40 * sizeof (CHAR16),
                    L"Slot %2u: 0x%016lx", (UINT32)Index, Val);
     Used++;
   }
@@ -204,10 +204,10 @@ AtConfirmReset5x (
     gBS->Stall (1000000);  /* 1 second */
     gST->ConIn->Reset (gST->ConIn, FALSE);
 
-    AtUiBeginScreen (L"Reset ARB Index", NULL);
-    Print (L"WARNING: this writes to the TEE and may lose keys.\r\n");
-    Print (L"\r\n   Confirm %u/5\r\n", (UINT32)Step);
-    Print (L"\r\nPower = confirm   Vol+/- = cancel\r\n");
+    AtUiBeginScreen (L"Reset ARB Index", NULL, 6);
+    AtUiPrint (L"WARNING: this writes to the TEE and may lose keys.\r\n");
+    AtUiPrint (L"\r\n   Confirm %u/5\r\n", (UINT32)Step);
+    AtUiPrint (L"\r\nPower = confirm   Vol+/- = cancel\r\n");
 
     Key = AtUiWaitForKey (0);
     if (Key != AtKeySelect) {

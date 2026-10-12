@@ -290,7 +290,7 @@ SfbDriverActionMenu (IN EFI_HANDLE   Volume,
     SFB_KEY     Key;
     EFI_STATUS  Status;
 
-    SfbBeginScreen (L"EFI Driver", FullPath);
+    SfbBeginScreen (L"EFI Driver", FullPath, ARRAY_SIZE (Actions));
 
     for (Index = 0; Index < ARRAY_SIZE (Actions); Index++) {
       SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (Actions[Index]));
@@ -361,7 +361,7 @@ SfbEfiActionMenu (IN EFI_HANDLE   Volume,
     UINTN    Index;
     SFB_KEY  Key;
 
-    SfbBeginScreen (L"EFI Application", FullPath);
+    SfbBeginScreen (L"EFI Application", FullPath, ARRAY_SIZE (Actions));
 
     for (Index = 0; Index < ARRAY_SIZE (Actions); Index++) {
       SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (Actions[Index]));
@@ -467,7 +467,7 @@ SfbBrowseVolume (IN EFI_HANDLE   Volume,
       Reload = FALSE;
     }
 
-    SfbBeginScreen (VolumeLabel, Path);
+    SfbBeginScreen (VolumeLabel, Path, MIN (Count, SFB_VISIBLE_ROWS) + 2);
 
     Start = SfbWindowStart (Cursor, Count, SFB_VISIBLE_ROWS);
     Last = Start + SFB_VISIBLE_ROWS;
@@ -634,7 +634,8 @@ SfbRunFileBrowser (VOID)
     UINTN    Last;
     SFB_KEY  Key;
 
-    SfbBeginScreen (L"EFI Program Selector", L"Choose a volume to browse.");
+    SfbBeginScreen (L"EFI Program Selector", L"Choose a volume to browse.",
+                     MIN (RowCount, SFB_VISIBLE_ROWS) + 1);
 
     Start = SfbWindowStart (Cursor, RowCount, SFB_VISIBLE_ROWS);
     Last = Start + SFB_VISIBLE_ROWS;

@@ -131,10 +131,14 @@ SfbStrCaseEqual (IN CONST CHAR16 *Str1, IN CONST CHAR16 *Str2)
 }
 
 VOID
-SfbBeginScreen (IN CONST CHAR16 *Title, IN CONST CHAR16 *Subtitle)
+SfbBeginScreen (IN CONST CHAR16 *Title, IN CONST CHAR16 *Subtitle, IN UINTN ContentRows)
 {
+  UINTN Rows = ContentRows + 3 + SfbTextLines (Title) +
+                 SfbTextLines (Subtitle) +
+                 SfbTextLines (L"Vol Up/Down: move   Power: select");
+  gBS->SetWatchdogTimer (0, 0, 0, NULL);
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  SfbClearScreen ();
+  SfbClearScreen (Rows);
   SfbPrint (L"%s\r\n", SfbText (Title));
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
   if (Subtitle != NULL) {
@@ -150,7 +154,7 @@ SfbEndScreen (IN CONST CHAR16 *Footer)
   SfbPrint (L"\r\n%s\r\n", SfbText (Footer));
 }
 
-VOID
+VOID EFIAPI
 SfbDrawRow (IN BOOLEAN Selected, IN CONST CHAR16 *Marker, IN CONST CHAR16 *Text)
 {
   CHAR16 Visible[SFB_PATH_CHARS + 4];
@@ -228,8 +232,10 @@ SfbMoveCursor (IN OUT UINTN *Cursor, IN UINTN Count, IN SFB_KEY Key)
 VOID
 SfbReportStatus (IN CONST CHAR16 *What, IN EFI_STATUS Status)
 {
+  CHAR16 StatusText[80];
+  UnicodeSPrint (StatusText, sizeof (StatusText), L"%r", Status);
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
-  SfbPrint (L"\r\n%s: %r\r\n", SfbText (What), Status);
+  SfbPrint (L"\r\n%s: %s\r\n", SfbText (What), SfbText (StatusText));
   SfbPrint (L"Press power to continue.\r\n");
   SfbWaitForKey (0);
 }
@@ -244,7 +250,7 @@ VOID
 SfbShowFastbootMode (VOID)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  SfbClearScreen ();
+  SfbClearScreen (4);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
   SfbPrint (L"FASTBOOT MODE\r\n");
@@ -269,17 +275,17 @@ SfbShowBootingScreen (IN CONST CHAR16 *Name,
    * where the menu itself is what needs clearing away.
    */
   if (ClearScreen) {
-    SfbClearScreen ();
+    SfbClearScreen (4);
   }
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
   if (FilePath != NULL) {
     CONST CHAR16 *FileName = SfbGetFileName (FilePath);
     if (!SfbStrCaseEqual (FileName, L"boot.efi")) {
-      SfbPrint (L"Booting %s\r\n", (Name != NULL && Name[0] != L'\0') ? Name : L"...");
+      SfbPrint (L"Booting %s\r\n", (Name != NULL && Name[0] != L'\0') ? SfbText (Name) : L"...");
     }
   } else {
-    SfbPrint (L"Booting %s\r\n", (Name != NULL && Name[0] != L'\0') ? Name : L"...");
+    SfbPrint (L"Booting %s\r\n", (Name != NULL && Name[0] != L'\0') ? SfbText (Name) : L"...");
   }
 
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
@@ -294,7 +300,7 @@ VOID
 SfbShowActionScreen (IN CONST CHAR16 *Text)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  SfbClearScreen ();
+  SfbClearScreen (4);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
   SfbPrint (L"%s\r\n", SfbText (Text));
@@ -313,7 +319,7 @@ VOID
 SfbShowEnteringMenu (VOID)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  SfbClearScreen ();
+  SfbClearScreen (4);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
   SfbPrint (L"Entering Boot Menu\r\n");
@@ -342,7 +348,7 @@ VOID
 SfbShowEnteringScreen (IN CONST CHAR16 *What)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  SfbClearScreen ();
+  SfbClearScreen (4);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
   SfbPrint (L"Entering %s\r\n", (What != NULL) ? SfbText (What) : L"...");
@@ -379,7 +385,8 @@ SfbDrawMenu (IN CONST SFB_MENU_STATE *Menu,
   UINTN  Index;
   UINTN  Last;
 
-  SfbBeginScreen (Title, NULL);
+  SfbBeginScreen (Title, NULL, MIN (Menu->Count, SFB_VISIBLE_ROWS) +
+                   (Menu->Count > SFB_VISIBLE_ROWS ? 1 : 0));
 
   if (Menu->Count == 0) {
     SfbPrint (L"  No boot entries found.\r\n");
@@ -400,11 +407,11 @@ SfbDrawMenu (IN CONST SFB_MENU_STATE *Menu,
     if (Entry->Kind == SfbEntrySubmenu) {
       CHAR16  Text[SFB_DESC_CHARS + 4];
 
-      SfbFormat (Text, sizeof (Text), L"%s >", Entry->Desc);
+      SfbFormat (Text, sizeof (Text), L"%s >", SfbText (Entry->Desc));
       SfbDrawRow ((BOOLEAN)(Index == Cursor), Marker, Text);
     } else {
       SfbDrawRow ((BOOLEAN)(Index == Cursor), Marker,
-                   Entry->Kind == SfbEntryEfiFile ? Entry->Desc : SfbText (Entry->Desc));
+                   SfbText (Entry->Desc));
     }
   }
 
@@ -522,7 +529,7 @@ SfbRunLanguageMenu (VOID)
     Rows[0] = L"English";
     Rows[1] = SfbChineseAvailable () ? L"简体中文" : L"Simplified Chinese";
     Rows[2] = SfbText (L"Back");
-    SfbBeginScreen (L"Language", L"Choose the menu language.");
+    SfbBeginScreen (L"Language", L"Choose the menu language.", ARRAY_SIZE (Rows));
     for (Index = 0; Index < ARRAY_SIZE (Rows); Index++) {
       SfbDrawRow ((BOOLEAN)(Index == Cursor),
                    Index == (SfbIsChinese () ? 1U : 0U) ? L"*" : L" ",

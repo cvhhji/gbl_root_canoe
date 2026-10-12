@@ -78,7 +78,8 @@ SfbAdvChoose (IN CONST CHAR16 *Title,
   SFB_KEY Key;
 
   while (TRUE) {
-    SfbBeginScreen (Title, Subtitle);
+    SfbBeginScreen (Title, Subtitle, MIN (Total, SFB_VISIBLE_ROWS) +
+                     (Total > SFB_VISIBLE_ROWS ? 1 : 0));
 
     Start = SfbWindowStart (Cursor, Total, SFB_VISIBLE_ROWS);
     Last = Start + SFB_VISIBLE_ROWS;
@@ -543,7 +544,7 @@ SfbAdvVirtualLabel (IN EFI_HANDLE Source, OUT CHAR16 *Out, IN UINTN OutChars)
       return;
     }
   }
-  StrCpyS (Out, OutChars, L"virtual(efisp.fat)");
+  StrCpyS (Out, OutChars, SfbText (L"virtual(efisp.fat)"));
 }
 
 /*
