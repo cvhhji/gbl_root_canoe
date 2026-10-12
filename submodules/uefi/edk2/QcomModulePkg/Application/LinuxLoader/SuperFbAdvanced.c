@@ -67,7 +67,8 @@ SfbAdvChoose (IN CONST CHAR16 *Title,
               IN CONST CHAR16 *Subtitle,
               IN CONST CHAR16 (*Rows)[SFB_ADV_ROW_CHARS],
               IN UINTN        Count,
-              IN UINTN        StartCursor)
+              IN UINTN        StartCursor,
+              IN BOOLEAN      TranslateRows)
 {
   UINTN   Cursor = (StartCursor < Count) ? StartCursor : 0;
   UINTN   Total = Count + 1;
@@ -87,13 +88,14 @@ SfbAdvChoose (IN CONST CHAR16 *Title,
 
     for (Index = Start; Index < Last; Index++) {
       if (Index < Count) {
-        SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", Rows[Index]);
+        SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ",
+                     TranslateRows ? SfbText (Rows[Index]) : Rows[Index]);
       } else {
-        SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", L"Back");
+        SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (L"Back"));
       }
     }
     if (Last < Total) {
-      Print (L"    ... %u more\r\n", (UINT32)(Total - Last));
+      SfbPrint (L"    ... %u more\r\n", (UINT32)(Total - Last));
     }
     SfbEndScreen (L"Vol Up/Down: move   Power: select");
 
@@ -129,8 +131,8 @@ SfbAdvChooseMountMode (IN CONST CHAR16 *Target,
   CHAR16 Subtitle[96];
   INTN   Chosen;
 
-  UnicodeSPrint (Subtitle, sizeof (Subtitle), L"Mount %s how?", Target);
-  Chosen = SfbAdvChoose (L"USB Mass Storage", Subtitle, Rows, 2, 0);
+  SfbFormat (Subtitle, sizeof (Subtitle), L"Mount %s how?", Target);
+  Chosen = SfbAdvChoose (L"USB Mass Storage", Subtitle, Rows, 2, 0, TRUE);
   if (Chosen < 0) {
     return FALSE;
   }
@@ -291,9 +293,9 @@ SfbAdvExportPartition (IN CONST SFB_ADV_PARTITION *Part)
     return;
   }
 
-  UnicodeSPrint (Detail, sizeof (Detail),
-                 L"Partition: %s (%a)", Target,
-                 ReadOnly ? "read-only" : "read-write");
+  SfbFormat (Detail, sizeof (Detail),
+                 L"Partition: %s (%s)", Target,
+                 SfbText (ReadOnly ? L"read-only" : L"read-write"));
   Status = SfbUsbMsdExportBlkIo (&Disk->BlockIo, L"USB Mass Storage",
                                  Detail, Bytes);
   SfbSynthDiskDestroy (Disk);
@@ -315,7 +317,7 @@ SfbAdvExportLun (IN CONST SFB_ADV_LUN *Lun)
   CHAR16         Detail[96];
   EFI_STATUS     Status;
 
-  UnicodeSPrint (Target, sizeof (Target), L"LUN %u", Lun->Lun);
+  SfbFormat (Target, sizeof (Target), L"LUN %u", Lun->Lun);
   if (!SfbAdvChooseMountMode (Target, &ReadOnly)) {
     return;
   }
@@ -326,9 +328,9 @@ SfbAdvExportLun (IN CONST SFB_ADV_LUN *Lun)
     return;
   }
 
-  UnicodeSPrint (Detail, sizeof (Detail),
-                 L"Whole LUN %u (%a)", Lun->Lun,
-                 ReadOnly ? "read-only" : "read-write");
+  SfbFormat (Detail, sizeof (Detail),
+                 L"Whole LUN %u (%s)", Lun->Lun,
+                 SfbText (ReadOnly ? L"read-only" : L"read-write"));
   Status = SfbUsbMsdExportBlkIo (&Disk->BlockIo, L"USB Mass Storage",
                                  Detail, Lun->Bytes);
   SfbSynthDiskDestroy (Disk);
@@ -418,14 +420,14 @@ SfbAdvExportPartitionFlow (VOID)
       return;
     }
     for (Index = 0; Index < LunCount; Index++) {
-      UnicodeSPrint (Rows[Index], sizeof (Rows[Index]), L"LUN %u (%Lu MiB)",
+      SfbFormat (Rows[Index], sizeof (Rows[Index]), L"LUN %u (%Lu MiB)",
                      Luns[Index].Lun,
                      Luns[Index].Bytes / (1024 * 1024));
     }
 
     Chosen = SfbAdvChoose (L"Export a partition",
                            L"Pick the LUN holding the partition.",
-                           Rows, LunCount, 0);
+                           Rows, LunCount, 0, FALSE);
     FreePool (Rows);
     if (Chosen < 0) {
       return;
@@ -448,14 +450,14 @@ SfbAdvExportPartitionFlow (VOID)
         break;
       }
       for (Index = 0; Index < PartCount; Index++) {
-        UnicodeSPrint (Rows[Index], sizeof (Rows[Index]), L"%s (%Lu MiB)",
+        SfbFormat (Rows[Index], sizeof (Rows[Index]), L"%s (%Lu MiB)",
                        Parts[Index].Entry->PartitionName,
                        Parts[Index].Bytes / (1024 * 1024));
       }
 
       Chosen = SfbAdvChoose (L"Export a partition",
                              L"Pick the partition to export.",
-                             Rows, PartCount, 0);
+                             Rows, PartCount, 0, FALSE);
       FreePool (Rows);
       if (Chosen < 0) {
         FreePool (Parts);
@@ -494,14 +496,14 @@ SfbAdvExportLunFlow (VOID)
       return;
     }
     for (Index = 0; Index < LunCount; Index++) {
-      UnicodeSPrint (Rows[Index], sizeof (Rows[Index]), L"LUN %u (%Lu MiB)",
+      SfbFormat (Rows[Index], sizeof (Rows[Index]), L"LUN %u (%Lu MiB)",
                      Luns[Index].Lun,
                      Luns[Index].Bytes / (1024 * 1024));
     }
 
     Chosen = SfbAdvChoose (L"Export a LUN",
                            L"Pick the LUN to export whole.",
-                           Rows, LunCount, 0);
+                           Rows, LunCount, 0, FALSE);
     FreePool (Rows);
     if (Chosen < 0) {
       return;
@@ -536,7 +538,7 @@ SfbAdvVirtualLabel (IN EFI_HANDLE Source, OUT CHAR16 *Out, IN UINTN OutChars)
                                           (VOID **)&Entry)) || Entry == NULL) {
         break;
       }
-      UnicodeSPrint (Out, OutChars, L"virtual(LUN%u:%s:%u)",
+      SfbFormat (Out, OutChars, L"virtual(LUN%u:%s:%u)",
                      Lun, Entry->PartitionName, (UINT32)(j + 1));
       return;
     }
@@ -604,7 +606,7 @@ SfbAdvExportVirtualFlow (VOID)
 
     Chosen = SfbAdvChoose (L"Export a Virtual Disk",
                            L"Pick the mounted container to export.",
-                           Rows, Shown, 0);
+                           Rows, Shown, 0, FALSE);
     FreePool (Rows);
     if (Chosen < 0) {
       return;
@@ -644,8 +646,8 @@ SfbAdvExportVirtualFlow (VOID)
               (UINT64)BlkIo->Media->BlockSize;
     }
 
-    UnicodeSPrint (Detail, sizeof (Detail), L"%s (%a)", Target,
-                   ReadOnly ? "read-only" : "read-write");
+    SfbFormat (Detail, sizeof (Detail), L"%s (%s)", Target,
+                   SfbText (ReadOnly ? L"read-only" : L"read-write"));
     Status = SfbUsbMsdExportBlkIo (BlkIo, L"USB Mass Storage", Detail, Bytes);
 
     if (Wrap != NULL) {
@@ -893,16 +895,16 @@ SfbAdvCollectVolumes (OUT SFB_ADV_GROUP  *Groups,
       Groups[GroupIdx].Lun = Lun;
       SfbAdvVolumeLabel (All[Index], Label, SFB_DESC_CHARS);
       if (Key == NULL) {
-        StrCpyS (Groups[GroupIdx].Title, SFB_ADV_ROW_CHARS, L"Virtual Disks");
+        StrCpyS (Groups[GroupIdx].Title, SFB_ADV_ROW_CHARS, SfbText (L"Virtual Disks"));
       } else if (Lun >= 0) {
-        UnicodeSPrint (Groups[GroupIdx].Title,
+        SfbFormat (Groups[GroupIdx].Title,
                        sizeof (Groups[GroupIdx].Title), L"LUN %d",
                        (INT32)Lun);
       } else if (Label[0] != L'\0') {
-        UnicodeSPrint (Groups[GroupIdx].Title,
+        SfbFormat (Groups[GroupIdx].Title,
                        sizeof (Groups[GroupIdx].Title), L"Disk %s", Label);
       } else {
-        StrCpyS (Groups[GroupIdx].Title, SFB_ADV_ROW_CHARS, L"Disk");
+        StrCpyS (Groups[GroupIdx].Title, SFB_ADV_ROW_CHARS, SfbText (L"Disk"));
       }
       G++;
     }
@@ -952,7 +954,7 @@ SfbRunVolumesMenu (VOID)
     for (Index = 0; Index < VolCount; Index++) {
       SfbAdvVolumeLabel (Volumes[Index], Labels[Index], SFB_ADV_ROW_CHARS);
       if (Labels[Index][0] == L'\0') {
-        StrCpyS (Labels[Index], SFB_ADV_ROW_CHARS, L"Volume");
+        StrCpyS (Labels[Index], SFB_ADV_ROW_CHARS, SfbText (L"Volume"));
       }
     }
 
@@ -966,7 +968,7 @@ SfbRunVolumesMenu (VOID)
       StrCpyS (Rows[Index], SFB_ADV_ROW_CHARS, Groups[Index].Title);
     }
     Chosen = SfbAdvChoose (L"Volumes", L"Pick a storage group.",
-                           Rows, GroupCount, 0);
+                           Rows, GroupCount, 0, FALSE);
     FreePool (Rows);
     if (Chosen < 0) {
       FreePool (Labels);
@@ -1000,7 +1002,7 @@ SfbRunVolumesMenu (VOID)
 
       ChosenVol = SfbAdvChoose (Groups[Chosen].Title,
                                 L"Pick a volume to browse.",
-                                Rows, Count, 0);
+                                Rows, Count, 0, FALSE);
       FreePool (Rows);
       if (ChosenVol < 0) {
         break;   /* back to the group list */
@@ -1051,7 +1053,7 @@ SfbRunMassStorageMenu (VOID)
   while (TRUE) {
     Chosen = SfbAdvChoose (L"USB Mass Storage",
                            L"Expose device storage to the host over USB.",
-                           Rows, 3, 0);
+                           Rows, 3, 0, TRUE);
     if (Chosen < 0) {
       return;
     }
@@ -1078,7 +1080,7 @@ SfbRunAdvancedMenu (VOID)
   SfbShowEnteringScreen (L"Advanced");
 
   while (TRUE) {
-    Chosen = SfbAdvChoose (L"Advanced", NULL, Rows, 3, 0);
+    Chosen = SfbAdvChoose (L"Advanced", NULL, Rows, 3, 0, TRUE);
     if (Chosen < 0) {
       return FALSE;
     }

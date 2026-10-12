@@ -82,6 +82,7 @@ typedef enum {
   /* Opens the Advanced submenu (fastboot, USB mass-storage export, grouped
    * volumes). */
   SfbEntryAdvanced,
+  SfbEntryLanguage,
   /* "Back" row at the foot of a submenu: returns to the parent menu. */
   SfbEntryBack,
   /* Power management actions offered at the end of the menu and on the
@@ -117,6 +118,7 @@ typedef struct {
 typedef struct {
   SFB_BOOT_ENTRY  Entry[SFB_MAX_ENTRIES];
   UINTN           Count;
+  UINTN           EntryLimit;
   /* Entry the menu highlights first, or SFB_NO_INDEX. This may be the stored
    * default or, absent one, the first on-device entry used as a starting
    * point for the cursor and the "*" marker. */
@@ -254,17 +256,12 @@ SfbFatBlobImageDisk (IN UINTN Index);
 
 /* ---- SuperFbStore.c: settings kept in the tail of the ESP ---------------- */
 
-/*
- * The firmware on this platform rejects variables it does not know, so the two
- * things the menu has to remember outlive a reboot in the EFI System Partition
- * instead: two 1 KiB NUL-padded ASCII records written to the very end of the
- * partition, which is the only part of it that is safe to touch.
- */
 #define SFB_STORE_SLOT_BYTES  1024
-#define SFB_STORE_SLOTS       2
+#define SFB_STORE_SLOTS       3
 
-#define SFB_STORE_DEFAULT  0   /* the entry the menu timeout launches */
-#define SFB_STORE_CUSTOM   1   /* the single user-added menu entry */
+#define SFB_STORE_DEFAULT  1   /* the entry the menu timeout launches */
+#define SFB_STORE_CUSTOM   2   /* the single user-added menu entry */
+#define SFB_STORE_LANGUAGE 0
 
 /*
  * Replace one record. Text is NUL-terminated ASCII of at most
@@ -452,5 +449,34 @@ SfbMoveCursor (IN OUT UINTN *Cursor, IN UINTN Count, IN SFB_KEY Key);
 /* Show a status line and hold the screen until the user acknowledges it. */
 VOID
 SfbReportStatus (IN CONST CHAR16 *What, IN EFI_STATUS Status);
+
+VOID
+SfbInitializeText (VOID);
+
+BOOLEAN
+SfbChineseAvailable (VOID);
+
+BOOLEAN
+SfbIsChinese (VOID);
+
+UINTN
+SfbTextColumns (VOID);
+
+EFI_STATUS
+SfbSetChinese (IN BOOLEAN Chinese);
+
+CONST CHAR16 *
+SfbText (IN CONST CHAR16 *Text);
+
+VOID
+SfbClearScreen (VOID);
+
+UINTN
+EFIAPI
+SfbPrint (IN CONST CHAR16 *Format, ...);
+
+UINTN
+EFIAPI
+SfbFormat (OUT CHAR16 *Buffer, IN UINTN BufferSize, IN CONST CHAR16 *Format, ...);
 
 #endif

@@ -293,7 +293,7 @@ SfbDriverActionMenu (IN EFI_HANDLE   Volume,
     SfbBeginScreen (L"EFI Driver", FullPath);
 
     for (Index = 0; Index < ARRAY_SIZE (Actions); Index++) {
-      SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", Actions[Index]);
+      SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (Actions[Index]));
     }
 
     SfbEndScreen (L"Vol Up/Down: move   Power: select");
@@ -364,7 +364,7 @@ SfbEfiActionMenu (IN EFI_HANDLE   Volume,
     SfbBeginScreen (L"EFI Application", FullPath);
 
     for (Index = 0; Index < ARRAY_SIZE (Actions); Index++) {
-      SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", Actions[Index]);
+      SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (Actions[Index]));
     }
 
     SfbEndScreen (L"Vol Up/Down: move   Power: select");
@@ -490,10 +490,10 @@ SfbBrowseVolume (IN EFI_HANDLE   Volume,
     }
 
     if (Last < Count) {
-      Print (L"    ... %u more\r\n", (UINT32)(Count - Last));
+      SfbPrint (L"    ... %u more\r\n", (UINT32)(Count - Last));
     }
     if (Truncated) {
-      Print (L"    (directory has more than %u entries; rest not shown)\r\n",
+      SfbPrint (L"    (directory has more than %u entries; rest not shown)\r\n",
              (UINT32)SFB_MAX_DIR_ENTRIES);
     }
 
@@ -618,10 +618,10 @@ SfbRunFileBrowser (VOID)
     }
 
     if (Label[0] == L'\0') {
-      UnicodeSPrint (Rows[Index].Label, sizeof (Rows[Index].Label),
+      SfbFormat (Rows[Index].Label, sizeof (Rows[Index].Label),
                      L"Volume %u", (UINT32)Index);
     } else {
-      UnicodeSPrint (Rows[Index].Label, sizeof (Rows[Index].Label),
+      SfbFormat (Rows[Index].Label, sizeof (Rows[Index].Label),
                      L"Volume %u: %s", (UINT32)Index, Label);
     }
   }
@@ -644,14 +644,14 @@ SfbRunFileBrowser (VOID)
 
     for (Index = Start; Index < Last; Index++) {
       if (Index == VolumeCount) {
-        SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", L"Back");
+        SfbDrawRow ((BOOLEAN)(Index == Cursor), L" ", SfbText (L"Back"));
       } else {
         SfbDrawRow ((BOOLEAN)(Index == Cursor), L"[V]", Rows[Index].Label);
       }
     }
 
     if (Last < RowCount) {
-      Print (L"    ... %u more\r\n", (UINT32)(RowCount - Last));
+      SfbPrint (L"    ... %u more\r\n", (UINT32)(RowCount - Last));
     }
 
     SfbEndScreen (L"Vol Up/Down: move   Power: select");

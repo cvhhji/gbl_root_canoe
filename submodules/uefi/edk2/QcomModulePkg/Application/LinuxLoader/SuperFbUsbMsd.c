@@ -189,13 +189,13 @@ SfbUsbMsdExportBlkIo (IN EFI_BLOCK_IO_PROTOCOL *BlkIo,
   SfbBeginScreen ((Title != NULL) ? Title : L"USB Mass Storage",
                   L"The host may now mount the disk.");
   if (Detail != NULL && Detail[0] != L'\0') {
-    Print (L"  %s\r\n", Detail);
+    SfbPrint (L"  %s\r\n", Detail);
   }
   if (Bytes != 0) {
-    Print (L"  Size: %Lu bytes (%Lu MiB)\r\n", Bytes, Bytes / (1024 * 1024));
+    SfbPrint (L"  Size: %Lu bytes (%Lu MiB)\r\n", Bytes, Bytes / (1024 * 1024));
   }
-  Print (L"\r\n");
-  Print (L"  Volume Down ends this session.\r\n");
+  SfbPrint (L"\r\n");
+  SfbPrint (L"  Volume Down ends this session.\r\n");
   SfbEndScreen (L"Volume Down: stop export");
 
   /* Nothing queued may reach the cancel test. */

@@ -334,7 +334,7 @@ SfbAppendBuiltIn (IN OUT SFB_MENU_STATE *Menu,
 {
   SFB_BOOT_ENTRY  *Entry;
 
-  if (Menu->Count >= SFB_MAX_ENTRIES) {
+  if (Menu->Count >= Menu->EntryLimit) {
     return;
   }
 
@@ -639,7 +639,7 @@ SfbAppendEntriesFile (IN OUT SFB_MENU_STATE *Menu,
     BOOLEAN         NoDefault = FALSE;
     BOOLEAN         IsSubmenu = FALSE;
 
-    if (Menu->Count >= SFB_MAX_ENTRIES) {
+    if (Menu->Count >= Menu->EntryLimit) {
       DEBUG ((EFI_D_ERROR, "SFB: entry list full, ENTRIES truncated\n"));
       break;
     }
@@ -723,7 +723,7 @@ SfbScanVolumes (IN OUT SFB_MENU_STATE *Menu)
     CHAR16             BootentriesPath[SFB_PATH_CHARS];
     CHAR16             Desc[SFB_DESC_CHARS];
 
-    if (Menu->Count >= SFB_MAX_ENTRIES) {
+    if (Menu->Count >= Menu->EntryLimit) {
       DEBUG ((EFI_D_ERROR, "SFB: entry list full, %u volumes not scanned\n",
               (UINT32)(VolumeCount - Index)));
       break;
@@ -753,7 +753,7 @@ SfbScanVolumes (IN OUT SFB_MENU_STATE *Menu)
      * off in the order they were found, so every row still has a label the
      * user can tell apart even when nothing on disk offers one.
      */
-    if (Menu->Count < SFB_MAX_ENTRIES &&
+    if (Menu->Count < Menu->EntryLimit &&
         SfbFileExists (Root, BootPath)) {
       SFB_BOOT_ENTRY  *Slot = &Menu->Entry[Menu->Count];
 
@@ -812,7 +812,7 @@ SfbAppendCustomEntry (IN OUT SFB_MENU_STATE *Menu)
     }
   }
 
-  if (Menu->Count >= SFB_MAX_ENTRIES) {
+  if (Menu->Count >= Menu->EntryLimit) {
     SfbFreeEntry (&Custom);
     return;
   }
@@ -861,11 +861,14 @@ SfbBuildMenu (OUT SFB_MENU_STATE *Menu)
 {
   ZeroMem (Menu, sizeof (*Menu));
   Menu->DefaultIndex = SFB_NO_INDEX;
+  Menu->EntryLimit = SFB_MAX_ENTRIES - 4;
 
   SfbScanVolumes (Menu);
   SfbAppendCustomEntry (Menu);
 
+  Menu->EntryLimit = SFB_MAX_ENTRIES;
   SfbAppendBuiltIn (Menu, SfbEntryAdvanced, L"Advanced");
+  SfbAppendBuiltIn (Menu, SfbEntryLanguage, L"Language");
   SfbAppendBuiltIn (Menu, SfbEntryPowerOff, L"Power Off");
   SfbAppendBuiltIn (Menu, SfbEntryRestart, L"Restart");
 
@@ -895,6 +898,7 @@ SfbBuildSubMenu (OUT SFB_MENU_STATE *Menu,
 
   ZeroMem (Menu, sizeof (*Menu));
   Menu->DefaultIndex = SFB_NO_INDEX;
+  Menu->EntryLimit = SFB_MAX_ENTRIES - 1;
 
   if (Volume == NULL || EntriesPath == NULL || EntriesPath[0] == L'\0') {
     return EFI_INVALID_PARAMETER;
@@ -911,6 +915,7 @@ SfbBuildSubMenu (OUT SFB_MENU_STATE *Menu,
 
   /* Always offer a way out: an empty or unreadable file still leaves the user
    * on a screen with a Back row. */
+  Menu->EntryLimit = SFB_MAX_ENTRIES;
   SfbAppendBuiltIn (Menu, SfbEntryBack, L"Back");
   return EFI_SUCCESS;
 }

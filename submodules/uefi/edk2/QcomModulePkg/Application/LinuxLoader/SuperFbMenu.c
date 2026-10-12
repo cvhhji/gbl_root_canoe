@@ -134,30 +134,59 @@ VOID
 SfbBeginScreen (IN CONST CHAR16 *Title, IN CONST CHAR16 *Subtitle)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"%s\r\n", Title);
+  SfbClearScreen ();
+  SfbPrint (L"%s\r\n", SfbText (Title));
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
   if (Subtitle != NULL) {
-    Print (L"%s\r\n", Subtitle);
+    SfbPrint (L"%s\r\n", SfbText (Subtitle));
   }
-  Print (L"\r\n");
+  SfbPrint (L"\r\n");
 }
 
 VOID
 SfbEndScreen (IN CONST CHAR16 *Footer)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
-  Print (L"\r\n%s\r\n", Footer);
+  SfbPrint (L"\r\n%s\r\n", SfbText (Footer));
 }
 
 VOID
 SfbDrawRow (IN BOOLEAN Selected, IN CONST CHAR16 *Marker, IN CONST CHAR16 *Text)
 {
+  CHAR16 Visible[SFB_PATH_CHARS + 4];
+  UINTN Columns = SfbTextColumns ();
+  UINTN Prefix = StrLen (Marker) + 3;
+  UINTN Width = 0;
+  UINTN Index = 0;
+
+  if (Columns > Prefix + 3) {
+    Columns -= Prefix;
+    while (Text[Index] != L'\0' && Index < ARRAY_SIZE (Visible) - 4) {
+      UINTN CharacterWidth = (Text[Index] < 0x80) ? 1 : 2;
+      if (Width + CharacterWidth > Columns) {
+        break;
+      }
+      Width += CharacterWidth;
+      Visible[Index] = Text[Index];
+      Index++;
+    }
+    if (Text[Index] != L'\0') {
+      while (Index != 0 && Width + 3 > Columns) {
+        Index--;
+        Width -= (Visible[Index] < 0x80) ? 1 : 2;
+      }
+      Visible[Index] = L'\0';
+      StrCatS (Visible, ARRAY_SIZE (Visible), L"...");
+    } else {
+      Visible[Index] = L'\0';
+    }
+    Text = Visible;
+  }
   gST->ConOut->SetAttribute (gST->ConOut,
                              Selected ? SFB_ATTR_SELECTED : SFB_ATTR_NORMAL);
-  Print (L"%s %s %s", Selected ? L">" : L" ", Marker, Text);
+  SfbPrint (L"%s %s %s", Selected ? L">" : L" ", Marker, Text);
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
-  Print (L"\r\n");
+  SfbPrint (L"\r\n");
 }
 
 /*
@@ -200,8 +229,8 @@ VOID
 SfbReportStatus (IN CONST CHAR16 *What, IN EFI_STATUS Status)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
-  Print (L"\r\n%s: %r\r\n", What, Status);
-  Print (L"Press power to continue.\r\n");
+  SfbPrint (L"\r\n%s: %r\r\n", SfbText (What), Status);
+  SfbPrint (L"Press power to continue.\r\n");
   SfbWaitForKey (0);
 }
 
@@ -215,10 +244,10 @@ VOID
 SfbShowFastbootMode (VOID)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  gST->ConOut->ClearScreen (gST->ConOut);
+  SfbClearScreen ();
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
-  Print (L"FASTBOOT MODE\r\n");
+  SfbPrint (L"FASTBOOT MODE\r\n");
 
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
 }
@@ -240,17 +269,17 @@ SfbShowBootingScreen (IN CONST CHAR16 *Name,
    * where the menu itself is what needs clearing away.
    */
   if (ClearScreen) {
-    gST->ConOut->ClearScreen (gST->ConOut);
+    SfbClearScreen ();
   }
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
   if (FilePath != NULL) {
     CONST CHAR16 *FileName = SfbGetFileName (FilePath);
     if (!SfbStrCaseEqual (FileName, L"boot.efi")) {
-      Print (L"Booting %s\r\n", (Name != NULL && Name[0] != L'\0') ? Name : L"...");
+      SfbPrint (L"Booting %s\r\n", (Name != NULL && Name[0] != L'\0') ? Name : L"...");
     }
   } else {
-    Print (L"Booting %s\r\n", (Name != NULL && Name[0] != L'\0') ? Name : L"...");
+    SfbPrint (L"Booting %s\r\n", (Name != NULL && Name[0] != L'\0') ? Name : L"...");
   }
 
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
@@ -265,10 +294,10 @@ VOID
 SfbShowActionScreen (IN CONST CHAR16 *Text)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  gST->ConOut->ClearScreen (gST->ConOut);
+  SfbClearScreen ();
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
-  Print (L"%s\r\n", Text);
+  SfbPrint (L"%s\r\n", SfbText (Text));
 
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
 }
@@ -284,10 +313,10 @@ VOID
 SfbShowEnteringMenu (VOID)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  gST->ConOut->ClearScreen (gST->ConOut);
+  SfbClearScreen ();
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
-  Print (L"Entering Boot Menu\r\n");
+  SfbPrint (L"Entering Boot Menu\r\n");
 
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
 
@@ -313,10 +342,10 @@ VOID
 SfbShowEnteringScreen (IN CONST CHAR16 *What)
 {
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_TITLE);
-  gST->ConOut->ClearScreen (gST->ConOut);
+  SfbClearScreen ();
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
 
-  Print (L"Entering %s\r\n", (What != NULL) ? What : L"...");
+  SfbPrint (L"Entering %s\r\n", (What != NULL) ? SfbText (What) : L"...");
 
   gST->ConOut->SetAttribute (gST->ConOut, SFB_ATTR_NORMAL);
 
@@ -353,7 +382,7 @@ SfbDrawMenu (IN CONST SFB_MENU_STATE *Menu,
   SfbBeginScreen (Title, NULL);
 
   if (Menu->Count == 0) {
-    Print (L"  No boot entries found.\r\n");
+    SfbPrint (L"  No boot entries found.\r\n");
   }
 
   Start = SfbWindowStart (Cursor, Menu->Count, SFB_VISIBLE_ROWS);
@@ -371,15 +400,16 @@ SfbDrawMenu (IN CONST SFB_MENU_STATE *Menu,
     if (Entry->Kind == SfbEntrySubmenu) {
       CHAR16  Text[SFB_DESC_CHARS + 4];
 
-      UnicodeSPrint (Text, sizeof (Text), L"%s >", Entry->Desc);
+      SfbFormat (Text, sizeof (Text), L"%s >", Entry->Desc);
       SfbDrawRow ((BOOLEAN)(Index == Cursor), Marker, Text);
     } else {
-      SfbDrawRow ((BOOLEAN)(Index == Cursor), Marker, Entry->Desc);
+      SfbDrawRow ((BOOLEAN)(Index == Cursor), Marker,
+                   Entry->Kind == SfbEntryEfiFile ? Entry->Desc : SfbText (Entry->Desc));
     }
   }
 
   if (Last < Menu->Count) {
-    Print (L"    ... %u more\r\n", (UINT32)(Menu->Count - Last));
+    SfbPrint (L"    ... %u more\r\n", (UINT32)(Menu->Count - Last));
   }
 
   SfbEndScreen (L"Vol Up/Down: move   Power: select");
@@ -478,6 +508,48 @@ done:
   FreePool (Menu);
 }
 
+STATIC VOID
+SfbRunLanguageMenu (VOID)
+{
+  UINTN Cursor = SfbIsChinese () ? 1 : 0;
+  UINTN Index;
+  SFB_KEY Key;
+  EFI_STATUS Status;
+  CONST CHAR16 *Rows[3];
+
+  SfbShowEnteringScreen (L"Language");
+  while (TRUE) {
+    Rows[0] = L"English";
+    Rows[1] = SfbChineseAvailable () ? L"简体中文" : L"Simplified Chinese";
+    Rows[2] = SfbText (L"Back");
+    SfbBeginScreen (L"Language", L"Choose the menu language.");
+    for (Index = 0; Index < ARRAY_SIZE (Rows); Index++) {
+      SfbDrawRow ((BOOLEAN)(Index == Cursor),
+                   Index == (SfbIsChinese () ? 1U : 0U) ? L"*" : L" ",
+                   Rows[Index]);
+    }
+    SfbEndScreen (L"Vol Up/Down: move   Power: select");
+    Key = SfbWaitForKey (0);
+    if (Key == SfbKeyUp || Key == SfbKeyDown) {
+      SfbMoveCursor (&Cursor, ARRAY_SIZE (Rows), Key);
+      continue;
+    }
+    if (Cursor == 2) {
+      break;
+    }
+    if (Cursor == 1 && !SfbChineseAvailable ()) {
+      SfbReportStatus (L"Chinese text is unavailable on this display", EFI_UNSUPPORTED);
+      continue;
+    }
+    Status = SfbSetChinese ((BOOLEAN)(Cursor == 1));
+    if (EFI_ERROR (Status)) {
+      SfbReportStatus (L"Language changed for this boot; could not save", Status);
+    }
+    break;
+  }
+  SfbDebounceMenuExit ();
+}
+
 BOOLEAN
 SfbRunBootMenu (VOID)
 {
@@ -526,6 +598,11 @@ SfbRunBootMenu (VOID)
         return TRUE;
       }
       /* Storage and media state changed inside the submenu. */
+      Rebuild = TRUE;
+      break;
+
+    case SfbEntryLanguage:
+      SfbRunLanguageMenu ();
       Rebuild = TRUE;
       break;
 
