@@ -8,6 +8,17 @@ from tree_sitter_language_pack import get_parser
 LANGUAGES = {".sh": "bash", ".js": "javascript", ".css": "css", ".html": "html"}
 
 
+def embedded_code(data):
+    def visit(node):
+        if node.type == "raw_text" and node.parent.type in {"script_element", "style_element"}:
+            suffix = ".js" if node.parent.type == "script_element" else ".css"
+            yield node.start_byte, node.end_byte, suffix
+        for child in node.children:
+            yield from visit(child)
+
+    return list(visit(get_parser("html").parse(data).root_node))
+
+
 def comment_nodes(node, data):
     if "comment" in node.type:
         if not data[node.start_byte:node.end_byte].startswith(b"#!"):
@@ -39,6 +50,9 @@ def strip(data, suffix):
         result = result[:node.start_byte] + replacement + result[node.end_byte:]
     if tokens(root, data) != tokens(parser.parse(result).root_node, result):
         raise ValueError("Removing comments changed program tokens")
+    if suffix == ".html":
+        for start, end, language in reversed(embedded_code(result)):
+            result = result[:start] + strip(result[start:end], language) + result[end:]
     return result
 
 
