@@ -437,6 +437,78 @@ tbody tr:last-child td {
     padding: 12px;
   }
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg-top: #1b1714;
+    --bg-bottom: #100e0c;
+    --ink: #f8f2ea;
+    --shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+  }
+
+  .panel,
+  .modal-card {
+    background: linear-gradient(180deg, #27211c, #1d1915);
+  }
+
+  .panel,
+  .modal-card,
+  .stat-card,
+  .table-wrap,
+  th,
+  td,
+  .ghost-button {
+    border-color: rgba(248, 242, 234, 0.12);
+  }
+
+  .stat-card:not(.accent-card),
+  .table-wrap {
+    background: rgba(255, 248, 240, 0.05);
+  }
+
+  .caption,
+  .stat-label,
+  th,
+  .empty-row {
+    color: rgba(248, 242, 234, 0.72);
+  }
+
+  .stat-value,
+  .option-check,
+  .ghost-button {
+    color: var(--ink);
+  }
+
+  .ghost-button {
+    background: rgba(255, 248, 240, 0.08);
+  }
+
+  .primary-button {
+    color: #1b140f;
+  }
+
+  .warning-copy {
+    background: rgba(217, 66, 43, 0.14);
+  }
+
+  .warning-copy,
+  .status-pill.bad {
+    color: #ffb5a5;
+  }
+
+  .status-pill {
+    color: #ffbf85;
+  }
+
+  .status-pill.ok {
+    color: #8ee0aa;
+  }
+
+  .modal-backdrop {
+    background: rgba(0, 0, 0, 0.7);
+  }
+}
   </style>
 </head>
 <body>
