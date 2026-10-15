@@ -2,5 +2,5 @@ id=fake_bl_efisp
 name=假回锁
 version=@VERSION@
 versionCode=@VERSION_CODE@
-author=caomi
+author=zaomi
 description=自动刷新bl相关分区到非活动槽位
