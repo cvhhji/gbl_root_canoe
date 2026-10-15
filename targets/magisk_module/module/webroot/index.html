@@ -33,7 +33,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif;
+
   color: var(--ink);
   background:
     radial-gradient(circle at top left, rgba(255, 122, 0, 0.22), transparent 28%),
@@ -51,7 +51,6 @@ body::before {
   background-size: 24px 24px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.12), transparent 75%);
 }
-
 
 .page-shell {
   position: relative;
@@ -81,9 +80,9 @@ body::before {
 
 .eyebrow {
   margin: 0 0 8px;
-  letter-spacing: 0.18em;
+
   text-transform: uppercase;
-  font-size: 12px;
+
   color: rgba(255, 255, 255, 0.56);
 }
 
@@ -91,20 +90,14 @@ body::before {
 .panel h2,
 .modal-card h2 {
   margin: 0;
-  font-family: "Source Han Serif SC", "Noto Serif SC", serif;
-  font-weight: 700;
-}
 
-.hero-card h1 {
-  font-size: clamp(32px, 5vw, 48px);
-  line-height: 1.04;
 }
 
 .hero-copy {
   max-width: 720px;
   margin: 14px 0 0;
   color: var(--text-dim);
-  line-height: 1.6;
+
 }
 
 .hero-meta {
@@ -128,8 +121,7 @@ body::before {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
   color: var(--text-main);
-  font-size: 13px;
-  font-weight: 700;
+
 }
 
 .chip-warn {
@@ -172,7 +164,6 @@ body::before {
   grid-column: 1 / -1;
 }
 
-
 .panel-heading {
   display: flex;
   align-items: center;
@@ -183,7 +174,7 @@ body::before {
 
 .caption {
   color: rgba(27, 20, 15, 0.58);
-  font-size: 13px;
+
 }
 
 .stats-grid {
@@ -206,19 +197,14 @@ body::before {
 .stat-label {
   display: block;
   color: rgba(27, 20, 15, 0.58);
-  font-size: 13px;
+
   margin-bottom: 8px;
 }
 
 .stat-value {
   display: block;
-  font-size: 28px;
-  line-height: 1.12;
-  color: #20160f;
-}
 
-.stat-small {
-  font-size: 18px;
+  color: #20160f;
 }
 
 .action-strip {
@@ -233,7 +219,7 @@ body::before {
   gap: 10px;
   margin-top: 12px;
   color: #2b1f17;
-  font-size: 14px;
+
 }
 
 .option-check input {
@@ -246,7 +232,7 @@ button {
   border: 0;
   cursor: pointer;
   transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
-  font: inherit;
+
 }
 
 button:hover:not(:disabled) {
@@ -263,7 +249,7 @@ button:disabled {
   min-height: 46px;
   padding: 0 18px;
   border-radius: 14px;
-  font-weight: 700;
+
 }
 
 .primary-button {
@@ -283,7 +269,7 @@ button:disabled {
   border-radius: 14px;
   background: rgba(217, 66, 43, 0.08);
   color: #6e2419;
-  line-height: 1.6;
+
 }
 
 .table-wrap {
@@ -307,7 +293,7 @@ td {
 }
 
 th {
-  font-size: 13px;
+
   color: rgba(27, 20, 15, 0.58);
 }
 
@@ -319,8 +305,7 @@ tbody tr:last-child td {
   display: inline-flex;
   padding: 6px 10px;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
+
   background: rgba(255, 122, 0, 0.16);
   color: #7b3d00;
 }
@@ -348,9 +333,7 @@ tbody tr:last-child td {
   border-radius: 16px;
   background: #19120e;
   color: #ecd9c7;
-  font-family: "JetBrains Mono", "Cascadia Code", monospace;
-  font-size: 13px;
-  line-height: 1.58;
+
 }
 
 .modal-backdrop {
@@ -374,10 +357,6 @@ tbody tr:last-child td {
   border-radius: 24px;
   background: linear-gradient(180deg, rgba(255, 249, 243, 0.98), rgba(253, 241, 229, 0.94));
   border: 1px solid rgba(80, 55, 34, 0.08);
-}
-
-.modal-card p {
-  line-height: 1.6;
 }
 
 .modal-actions {
@@ -466,7 +445,7 @@ tbody tr:last-child td {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-  </style>
+</style>
   <style id="darkThemeStyle" media="not all">
 :root {
   color-scheme: light;
@@ -505,17 +484,17 @@ tbody tr:last-child td {
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #08090b;
-  --surface: #111316;
-  --surface-soft: #16191d;
-  --surface-raised: #20242a;
-  --surface-hover: #2a3038;
-  --surface-border: #2b3038;
+  --surface: #1b1e24;
+  --surface-soft: #252a33;
+  --surface-raised: #303744;
+  --surface-hover: #3b4554;
+  --surface-border: #414a59;
   --text-main: #e6e8ec;
   --text-dim: #9ca6b4;
   --accent: #9dc1ff;
   --accent-strong: #bdd5ff;
-  --accent-soft: #172338;
-  --accent-border: #354e73;
+  --accent-soft: #223650;
+  --accent-border: #4b6e9c;
   --on-accent: #101d31;
   --warning-bg: #241d12;
   --warning-text: #e3bd7b;
@@ -526,7 +505,7 @@ tbody tr:last-child td {
   --log-bg: #090b0e;
   --log-text: #bac5d4;
   --backdrop: rgba(0, 0, 0, 0.78);
-  --shadow: none;
+  --shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
   --scrollbar: #505966;
   --scrollbar-hover: #707d8f;
 }
@@ -558,10 +537,10 @@ tbody tr:last-child td {
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: system-ui, "Noto Sans SC", "PingFang SC", sans-serif;
+
   color: var(--text-main);
   background: var(--bg);
-  line-height: 1.5;
+
 }
 
 .page-shell {
@@ -588,10 +567,9 @@ body {
 
 .eyebrow {
   margin: 0 0 10px;
-  letter-spacing: 0.12em;
+
   text-transform: uppercase;
-  font-size: 11px;
-  font-weight: 600;
+
   color: var(--text-dim);
 }
 
@@ -599,26 +577,14 @@ body {
 .panel h2,
 .modal-card h2 {
   margin: 0;
-  font-weight: 650;
-  letter-spacing: -0.025em;
-}
 
-.hero-card h1 {
-  font-size: clamp(30px, 5vw, 38px);
-  line-height: 1.2;
-}
-
-.panel h2,
-.modal-card h2 {
-  font-size: 21px;
 }
 
 .hero-copy {
   max-width: 720px;
   margin: 14px 0 0;
   color: var(--text-dim);
-  line-height: 1.7;
-  font-size: 14px;
+
 }
 
 .hero-meta {
@@ -638,7 +604,7 @@ body {
 .hero-controls .ghost-button {
   min-height: 42px;
   padding: 0 14px;
-  font-size: 13px;
+
 }
 
 .theme-button {
@@ -673,8 +639,7 @@ body {
   border-radius: 999px;
   background: var(--surface-raised);
   color: var(--text-main);
-  font-size: 12px;
-  font-weight: 600;
+
 }
 
 .chip-warn,
@@ -733,7 +698,7 @@ body {
 th,
 .empty-row {
   color: var(--text-dim);
-  font-size: 13px;
+
 }
 
 .stats-grid {
@@ -766,15 +731,8 @@ th,
 
 .stat-value {
   display: block;
-  font-family: "Cascadia Code", "Roboto Mono", monospace;
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-}
 
-.stat-small {
-  font: 600 17px/1.5 system-ui, "Noto Sans SC", sans-serif;
+  overflow-wrap: anywhere;
 }
 
 .action-strip {
@@ -789,7 +747,7 @@ th,
   align-items: flex-start;
   gap: 10px;
   margin-top: 14px;
-  font-size: 14px;
+
   cursor: pointer;
 }
 
@@ -806,7 +764,7 @@ button {
   border: 0;
   cursor: pointer;
   transition: border-color 0.15s ease;
-  font: inherit;
+
   touch-action: manipulation;
 }
 
@@ -830,8 +788,7 @@ button:disabled {
   min-height: 46px;
   padding: 10px 16px;
   border-radius: var(--radius-md);
-  font-weight: 600;
-  line-height: 1.4;
+
 }
 
 .primary-button {
@@ -860,8 +817,7 @@ button:disabled {
   border-radius: var(--radius-md);
   background: var(--warning-bg);
   color: var(--warning-text);
-  line-height: 1.65;
-  font-size: 14px;
+
 }
 
 .table-wrap {
@@ -875,7 +831,7 @@ table {
   width: 100%;
   min-width: 540px;
   border-collapse: collapse;
-  font-size: 13px;
+
 }
 
 th,
@@ -887,7 +843,7 @@ td {
 }
 
 th {
-  font-weight: 500;
+
   white-space: nowrap;
 }
 
@@ -899,8 +855,7 @@ tbody tr:last-child td {
   display: inline-flex;
   padding: 5px 9px;
   border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
+
   white-space: nowrap;
 }
 
@@ -917,9 +872,7 @@ tbody tr:last-child td {
   border: 1px solid var(--surface-border);
   background: var(--log-bg);
   color: var(--log-text);
-  font-family: "Cascadia Code", "Roboto Mono", monospace;
-  font-size: 12px;
-  line-height: 1.7;
+
 }
 
 .modal-backdrop {
@@ -947,10 +900,6 @@ tbody tr:last-child td {
 
 .modal-card .eyebrow {
   color: var(--danger-text);
-}
-
-.modal-card p {
-  line-height: 1.65;
 }
 
 .modal-actions {
@@ -1022,6 +971,91 @@ tbody tr:last-child td {
   input:focus-visible {
     outline-color: Highlight;
   }
+}
+</style>
+
+  <style id="typographyStyle">
+body {
+  font-family: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif;
+}
+
+.eyebrow {
+  letter-spacing: 0.18em;
+  font-size: 12px;
+}
+
+.hero-card h1,
+.panel h2,
+.modal-card h2 {
+  font-family: "Source Han Serif SC", "Noto Serif SC", serif;
+  font-weight: 700;
+}
+
+.hero-card h1 {
+  font-size: clamp(32px, 5vw, 48px);
+  line-height: 1.04;
+}
+
+.hero-copy {
+  line-height: 1.6;
+}
+
+.chip {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.caption {
+  font-size: 13px;
+}
+
+.stat-label {
+  font-size: 13px;
+}
+
+.stat-value {
+  font-size: 28px;
+  line-height: 1.12;
+}
+
+.stat-small {
+  font-size: 18px;
+}
+
+.option-check {
+  font-size: 14px;
+}
+
+button {
+  font: inherit;
+}
+
+.primary-button,
+.ghost-button {
+  font-weight: 700;
+}
+
+.warning-copy {
+  line-height: 1.6;
+}
+
+th {
+  font-size: 13px;
+}
+
+.status-pill {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#logOutput {
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 13px;
+  line-height: 1.58;
+}
+
+.modal-card p {
+  line-height: 1.6;
 }
   </style>
 <script>
