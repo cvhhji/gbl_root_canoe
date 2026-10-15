@@ -75,7 +75,6 @@ body::before {
   background: linear-gradient(145deg, rgba(29, 21, 17, 0.94), rgba(57, 38, 28, 0.88));
   color: var(--text-main);
   border: 1px solid var(--surface-border);
-  animation: rise-in 0.45s ease-out;
 }
 
 .eyebrow {
@@ -148,7 +147,6 @@ body::before {
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, rgba(255, 250, 245, 0.72), rgba(255, 248, 240, 0.92));
   border: 1px solid rgba(80, 55, 34, 0.08);
-  animation: rise-in 0.55s ease-out;
 }
 
 .stats-panel {
@@ -364,17 +362,6 @@ tbody tr:last-child td {
   justify-content: flex-end;
   gap: 12px;
   margin-top: 20px;
-}
-
-@keyframes rise-in {
-  from {
-    opacity: 0;
-    transform: translateY(18px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 @media (max-width: 900px) {
@@ -952,16 +939,6 @@ tbody tr:last-child td {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  button {
-    transition: none;
-  }
-
-  button:active:not(:disabled) {
-    transform: none;
-  }
-}
-
 @media (forced-colors: active) {
   :root {
     scrollbar-color: auto;
@@ -974,7 +951,7 @@ tbody tr:last-child td {
 }
 </style>
 
-  <style id="typographyStyle">
+  <style id="sharedStyle">
 body {
   font-family: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif;
 }
@@ -1057,6 +1034,45 @@ th {
 .modal-card p {
   line-height: 1.6;
 }
+
+.hero-card {
+  animation: rise-in 0.45s ease-out;
+}
+
+.panel {
+  animation: rise-in 0.55s ease-out;
+}
+
+.theme-changing .hero-card,
+.theme-changing .panel {
+  animation: none;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-card,
+  .panel {
+    animation: none;
+  }
+
+  button {
+    transition: none;
+  }
+
+  button:active:not(:disabled) {
+    transform: none;
+  }
+}
   </style>
 <script>
 (() => {
@@ -1068,9 +1084,17 @@ try {
 } catch {}
 
 function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
+  const root = document.documentElement;
+  if (root.dataset.theme === theme) return;
+  const switching = Boolean(root.dataset.theme);
+  if (switching) root.classList.add("theme-changing");
+  root.dataset.theme = theme;
   document.getElementById("lightThemeStyle").media = theme === "light" ? "all" : "not all";
   document.getElementById("darkThemeStyle").media = theme === "dark" ? "all" : "not all";
+  if (switching) {
+    void root.offsetWidth;
+    root.classList.remove("theme-changing");
+  }
 }
 
 applyTheme(themePreference || (themeQuery.matches ? "dark" : "light"));
