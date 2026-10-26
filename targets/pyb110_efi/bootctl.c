@@ -1,0 +1,420 @@
+#include <stddef.h>
+#include <stdint.h>
+
+typedef struct Object Object;
+typedef union Arg Arg;
+struct Object { int32_t (*invoke)(void *, uint32_t, Arg *, uint32_t); void *context; };
+union Arg { struct { void *data; size_t size; } buffer; Object object; };
+
+extern int printf(const char *, ...);
+extern int fflush(void *);
+extern unsigned int getuid(void);
+extern unsigned int alarm(unsigned int);
+extern int __system_property_get(const char *, char *);
+extern int strcmp(const char *, const char *);
+extern size_t strlen(const char *);
+extern void *memcpy(void *, const void *, size_t);
+extern void *memset(void *, int, size_t);
+extern void *dlopen(const char *, int);
+extern void *dlsym(void *, const char *);
+extern void *malloc(size_t);
+extern void free(void *);
+extern int memcmp(const void *, const void *, size_t);
+extern int open(const char *, int, ...);
+extern int close(int);
+extern long read(int, void *, size_t);
+extern long write(int, const void *, size_t);
+extern long pread(int, void *, size_t, long);
+extern long lseek(int, long, int);
+extern int fsync(int);
+extern char *realpath(const char *, char *);
+
+static uint16_t le16(const uint8_t *p) { return p[0] | (uint16_t)p[1] << 8; }
+static uint32_t le32(const uint8_t *p) { return le16(p) | (uint32_t)le16(p + 2) << 16; }
+static uint64_t le64(const uint8_t *p) { return le32(p) | (uint64_t)le32(p + 4) << 32; }
+static void put16(uint8_t *p, uint16_t x) { p[0] = x; p[1] = x >> 8; }
+static void put32(uint8_t *p, uint32_t x) { put16(p, x); put16(p + 2, x >> 16); }
+
+static uint32_t crc32(const uint8_t *p, size_t n) {
+    uint32_t c = 0xffffffff;
+    for (size_t i = 0; i < n; i++) {
+        c ^= p[i];
+        for (unsigned int j = 0; j < 8; j++) c = (c >> 1) ^ (0xedb88320u & (0u - (c & 1)));
+    }
+    return ~c;
+}
+
+static void fat_set(uint8_t *table, uint16_t cluster, uint16_t value) {
+    unsigned int offset = cluster + cluster / 2;
+    uint16_t pair = le16(table + offset);
+    put16(table + offset, cluster & 1 ? (pair & 15) | value << 4 : (pair & 0xf000) | value);
+}
+
+static void directory(uint8_t *p, const char *name, uint8_t attributes, uint16_t cluster, uint32_t size) {
+    memcpy(p, name, 11); p[11] = attributes;
+    put16(p + 26, cluster); put32(p + 28, size);
+}
+
+int CanoeBuildCarrier(const uint8_t *original, size_t length, const uint8_t *bds, size_t bds_size, uint8_t *image) {
+    const size_t reserved = 24 * 1024 * 1024;
+    const unsigned int sector = 4096, start = 6150, total = 8192;
+    if (length != 32 * 1024 * 1024 || memcmp(original + 32768, "\1CD001\1", 7)) return 1;
+    for (size_t i = 0; i < 512; i++) if (original[i]) return 2;
+    uint32_t blocks = le32(original + 32768 + 80);
+    uint32_t big = (uint32_t)original[32852] << 24 | (uint32_t)original[32853] << 16 | (uint32_t)original[32854] << 8 | original[32855];
+    if (blocks != big || le16(original + 32896) != 2048 || original[32898] != 8 || original[32899] != 0 || blocks < 17 || blocks > reserved / 2048) return 3;
+    for (size_t i = reserved; i < length; i++) if (original[i]) return 4;
+    if (bds_size < 512 || bds_size > 2 * 1024 * 1024 || memcmp(bds, "MZ", 2)) return 5;
+    size_t count = (bds_size + sector - 1) / sector;
+    if (count + 2 > total - start) return 6;
+    memcpy(image, original, length);
+    memset(image + reserved, 0, length - reserved);
+    uint8_t *b = image;
+    memcpy(b, "\xeb\x3c\x90" "CANOETST", 11);
+    put16(b + 11, sector); b[13] = 1; put16(b + 14, 6144); b[16] = 2;
+    put16(b + 17, 512); put16(b + 19, total); b[21] = 0xf8; put16(b + 22, 1);
+    put16(b + 24, 63); put16(b + 26, 255); put32(b + 28, 105920);
+    b[36] = 0x80; b[38] = 0x29; put32(b + 39, crc32(bds, bds_size));
+    memcpy(b + 43, "CANOETEST  ", 11); memcpy(b + 54, "FAT12   ", 8); b[510] = 0x55; b[511] = 0xaa;
+    uint8_t *fat = image + reserved, *root = image + reserved + 2 * sector;
+    memcpy(fat, "\xf8\xff\xff", 3);
+    uint16_t cluster = 2;
+    directory(root, "BDS     EFI", 0x20, cluster, (uint32_t)bds_size); root += 32;
+    memcpy(image + (size_t)start * sector, bds, bds_size);
+    for (size_t j = 0; j < count; j++, cluster++) fat_set(fat, cluster, j + 1 == count ? 0xfff : cluster + 1);
+    directory(root, "SETTINGSBIN", 0x20, cluster, 3072); root += 32; fat_set(fat, cluster++, 0xfff);
+    directory(root, "CANOETST   ", 0x20, cluster, 10);
+    memcpy(image + ((size_t)start + cluster - 2) * sector, "CANOETEST1", 10); fat_set(fat, cluster, 0xfff);
+    memcpy(fat + sector, fat, sector);
+    return memcmp(image + 512, original + 512, reserved - 512) ? 7 : 0;
+}
+
+int CanoeBuildOption(uint8_t *header, const uint8_t *table, size_t table_size, uint8_t *out, size_t *size) {
+    if (memcmp(header, "EFI PART", 8) || le32(header + 12) < 92 || le32(header + 12) > 4096 || le64(header + 24) != 1) return 1;
+    uint32_t saved = le32(header + 16); put32(header + 16, 0);
+    uint32_t actual = crc32(header, le32(header + 12)); put32(header + 16, saved);
+    if (actual != saved || le32(header + 84) < 128 || le32(header + 84) > 4096 || le32(header + 80) > 512) return 2;
+    if ((uint64_t)le32(header + 80) * le32(header + 84) != table_size || crc32(table, table_size) != le32(header + 88)) return 3;
+    const uint8_t *entry = NULL; uint32_t number = 0;
+    for (uint32_t i = 0; i < le32(header + 80); i++) {
+        const uint8_t *e = table + (size_t)i * le32(header + 84);
+        const uint8_t name[] = {'D',0,'R',0,'I',0,'V',0,'E',0,'R',0,0,0};
+        if (!memcmp(e + 56, name, sizeof(name))) { if (entry) return 4; entry = e; number = i + 1; }
+    }
+    const uint8_t type[] = {0x38,0x68,0x4a,0,0x2a,6,0xdf,0x44,0x81,0x52,0x4f,0x34,0x0c,5,0x22,0x56};
+    if (!entry || number != 11 || memcmp(entry, type, 16) || le64(entry + 32) != 105920 || le64(entry + 40) != 114111 || le64(entry + 48)) return 5;
+    const char *description = "Canoe EFI test", *path = "\\BDS.EFI";
+    size_t descbytes = (strlen(description) + 1) * 2, pathbytes = (strlen(path) + 1) * 2;
+    size_t total = 6 + descbytes + 42 + 4 + pathbytes + 4;
+    if (*size < total) return 6;
+    memset(out, 0, total); put32(out, 1); put16(out + 4, (uint16_t)(42 + 4 + pathbytes + 4));
+    for (size_t i = 0; i < strlen(description); i++) put16(out + 6 + i * 2, description[i]);
+    uint8_t *p = out + 6 + descbytes;
+    p[0] = 4; p[1] = 1; put16(p + 2, 42); put32(p + 4, number); memcpy(p + 8, entry + 32, 8);
+    uint64_t sectors = 8192; memcpy(p + 16, &sectors, 8); memcpy(p + 24, entry + 16, 16); p[40] = 2; p[41] = 2;
+    p += 42; p[0] = 4; p[1] = 4; put16(p + 2, (uint16_t)(4 + pathbytes));
+    for (size_t i = 0; i < strlen(path); i++) put16(p + 4 + i * 2, path[i]);
+    p += 4 + pathbytes; memcpy(p, "\x7f\xff\4\0", 4); *size = total;
+    return 0;
+}
+
+#ifndef CANOE_HOST_TEST
+
+static uint8_t *read_file(const char *path, size_t *size, size_t maximum) {
+    int fd = open(path, 0x80000 | 0x20000);
+    if (fd < 0) return NULL;
+    long length = lseek(fd, 0, 2);
+    uint8_t *data = NULL;
+    if (length < 1 || (uint64_t)length > maximum || lseek(fd, 0, 0) != 0) goto done;
+    data = malloc((size_t)length);
+    if (!data) goto done;
+    size_t used = 0;
+    while (used < (size_t)length) {
+        long got = read(fd, data + used, (size_t)length - used);
+        if (got <= 0) { free(data); data = NULL; goto done; }
+        used += got;
+    }
+    *size = used;
+done:
+    close(fd); return data;
+}
+
+static int write_file(const char *path, const void *data, size_t size) {
+    int fd = open(path, 1 | 0x40 | 0x80 | 0x80000 | 0x20000, 0600);
+    if (fd < 0) return 1;
+    size_t used = 0;
+    while (used < size) {
+        long n = write(fd, (const uint8_t *)data + used, size - used);
+        if (n <= 0) { close(fd); return 1; }
+        used += n;
+    }
+    int r = fsync(fd); if (close(fd)) r = -1; return r != 0;
+}
+
+static Object environment, manager, application, service;
+static const uint8_t global_guid[16] = {0x61,0xdf,0xe4,0x8b,0xca,0x93,0xd2,0x11,0xaa,0x0d,0,0xe0,0x98,3,0x2b,0x8c};
+
+static void release(Object *o) {
+    if (o->invoke) o->invoke(o->context, 0xffff, NULL, 0);
+    memset(o, 0, sizeof(*o));
+}
+
+static int open_object(Object parent, uint32_t uid, Object *out) {
+    Arg a[2] = {0};
+    a[0].buffer.data = &uid;
+    a[0].buffer.size = 4;
+    int r = parent.invoke(parent.context, 0, a, 0x1001);
+    if (!r) *out = a[1].object;
+    return r;
+}
+
+static int connect_service(int load) {
+    void *library = dlopen("/vendor/lib64/libminkdescriptor.so", 2);
+    if (!library) return 1;
+    int32_t (*get_env)(Object *) = (int32_t (*)(Object *))dlsym(library, "TZCom_getClientEnvObject");
+    if (!get_env || get_env(&environment) || !environment.invoke) return 1;
+    int r = open_object(environment, 0x97, &manager);
+    printf("client_open=%d\n", r);
+    Arg a[3] = {0};
+    const char *name = "qcom.tz.uefisecapp";
+    a[0].buffer.data = (void *)name;
+    a[0].buffer.size = strlen(name);
+    if (!r && manager.invoke) {
+        r = manager.invoke(manager.context, 0, a, 0x1001);
+        if (!r) application = a[1].object;
+        printf("client_application=%d\n", r);
+    }
+    if (!application.invoke) {
+        release(&manager);
+        r = open_object(environment, 0x7a, &manager);
+        printf("manager_open=%d\n", r);
+        if (r || !manager.invoke) return 1;
+        uint32_t kind = 0xffffffff;
+        memset(a, 0, sizeof(a));
+        a[0].buffer.data = (void *)name;
+        a[0].buffer.size = strlen(name);
+        a[1].buffer.data = &kind;
+        a[1].buffer.size = 4;
+        r = manager.invoke(manager.context, 2, a, 0x1011);
+        if (!r) application = a[2].object;
+        printf("manager_application=%d kind=%u\n", r, kind);
+    }
+    if (!application.invoke && load) {
+        release(&manager);
+        r = open_object(environment, 3, &manager);
+        printf("signed_loader_open=%d\n", r);
+        if (!r && manager.invoke) {
+            char slot[128] = {0};
+            __system_property_get("ro.boot.slot_suffix", slot);
+            if (strcmp(slot, "_a") && strcmp(slot, "_b")) return 1;
+            size_t bytes = 0;
+            char resolved[4096];
+            if (!realpath(slot[1] == 'a' ? "/dev/block/by-name/uefisecapp_a" : "/dev/block/by-name/uefisecapp_b", resolved)) return 1;
+            uint8_t *elf = read_file(resolved, &bytes, 2 * 1024 * 1024);
+            if (!elf || bytes != 2 * 1024 * 1024 || memcmp(elf, "\177ELF\2\1", 6)) { free(elf); return 1; }
+            memset(a, 0, sizeof(a)); a[0].buffer.data = elf; a[0].buffer.size = bytes;
+            r = manager.invoke(manager.context, 0, a, 0x1001);
+            Object controller = {0}; if (!r) controller = a[1].object;
+            free(elf); printf("signed_application_load=%d\n", r);
+            if (!r && controller.invoke) {
+                memset(a, 0, sizeof(a));
+                r = controller.invoke(controller.context, 2, a, 0x1000);
+                if (!r) application = a[0].object;
+            }
+            release(&controller);
+        }
+    }
+    if (r || !application.invoke) return 1;
+    uint32_t uid = 0x19d;
+    memset(a, 0, sizeof(a));
+    a[0].buffer.data = &uid;
+    a[0].buffer.size = 4;
+    a[1].object = environment;
+    r = application.invoke(application.context, 0, a, 0x1101);
+    if (!r) service = a[2].object;
+    printf("uefi_service_open=%d\n", r);
+    return r || !service.invoke;
+}
+
+static int get_variable(const char *name, uint8_t *data, uint32_t *size, uint32_t *attributes) {
+    uint16_t wide[128] = {0};
+    size_t length = strlen(name);
+    if (length > 126 || *size > 65536) return -1;
+    for (size_t i = 0; i < length; i++) wide[i] = (uint8_t)name[i];
+    struct { uint8_t guid[16]; uint32_t size; } input;
+    struct { uint32_t size, attributes, status; } output = {0, 0, 0xffffffff};
+    memcpy(input.guid, global_guid, 16);
+    input.size = *size;
+    uint32_t attr = 0;
+    Arg a[5] = {0};
+    a[0].buffer.data = &input; a[0].buffer.size = sizeof(input);
+    a[1].buffer.data = wide; a[1].buffer.size = (length + 1) * 2;
+    a[2].buffer.data = &attr; a[2].buffer.size = 4;
+    a[3].buffer.data = &output; a[3].buffer.size = sizeof(output);
+    a[4].buffer.data = data; a[4].buffer.size = *size;
+    int r = service.invoke(service.context, 0, a, 0x23);
+    printf("get %s: transport=%d status=%u size=%u attributes=%u\n", name, r, output.status, output.size, output.attributes);
+    if (r || a[3].buffer.size != sizeof(output) || output.size > *size || a[4].buffer.size < output.size) return -1;
+    *size = output.size;
+    *attributes = output.attributes;
+    return (int)output.status;
+}
+
+static int set_variable(const char *name, const uint8_t *data, uint32_t size, uint32_t attributes) {
+    uint16_t wide[128] = {0}; size_t length = strlen(name);
+    if (length > 126 || size > 65536) return -1;
+    for (size_t i = 0; i < length; i++) wide[i] = (uint8_t)name[i];
+    struct { uint8_t guid[16]; uint32_t attributes, size; } input;
+    memcpy(input.guid, global_guid, 16); input.attributes = attributes; input.size = size;
+    uint32_t status = 0xffffffff;
+    Arg a[4] = {0};
+    a[0].buffer.data = &input; a[0].buffer.size = sizeof(input);
+    a[1].buffer.data = wide; a[1].buffer.size = (length + 1) * 2;
+    a[2].buffer.data = (void *)data; a[2].buffer.size = size;
+    a[3].buffer.data = &status; a[3].buffer.size = 4;
+    int r = service.invoke(service.context, 1, a, 0x13);
+    printf("set %s: transport=%d status=%u\n", name, r, status);
+    return r || a[3].buffer.size != 4 ? -1 : (int)status;
+}
+
+static int absent(const char *name) {
+    uint8_t data[8192]; uint32_t size = sizeof(data), attributes;
+    return get_variable(name, data, &size, &attributes) == 18;
+}
+
+static int equals(const char *name, const uint8_t *expected, size_t length) {
+    uint8_t data[8192]; uint32_t size = sizeof(data), attributes;
+    return !get_variable(name, data, &size, &attributes) && attributes == 7 && size == length && !memcmp(data, expected, length);
+}
+
+static int one_shot_only(void) {
+    uint8_t order[8192]; uint32_t size = sizeof(order), attributes;
+    int r = get_variable("BootOrder", order, &size, &attributes);
+    if (r == 18) return 1;
+    if (r || size % 2) return 0;
+    for (uint32_t i = 0; i < size; i += 2) if (le16(order + i) == 0xca06) return 0;
+    return 1;
+}
+
+static int save_variable(const char *name, const char *directory_path) {
+    uint8_t data[8200] = {0}; uint32_t size = sizeof(data) - 8, attributes = 0;
+    int r = get_variable(name, data + 8, &size, &attributes);
+    if (r != 0 && r != 18) return 1;
+    put32(data, r == 18 ? 0xffffffff : attributes);
+    put32(data + 4, r == 18 ? 0 : size);
+    char path[4096]; size_t dirbytes = strlen(directory_path), namebytes = strlen(name);
+    if (dirbytes + namebytes + 6 >= sizeof(path)) return 1;
+    memcpy(path, directory_path, dirbytes); path[dirbytes++] = '/';
+    memcpy(path + dirbytes, name, namebytes); memcpy(path + dirbytes + namebytes, ".bin", 5);
+    return write_file(path, data, r == 18 ? 8 : size + 8);
+}
+
+static int disarm(const uint8_t *option, size_t length) {
+    const uint8_t next[] = {6, 0xca};
+    if (equals("BootNext", next, 2)) {
+        if (set_variable("BootNext", NULL, 0, 0) || !absent("BootNext")) return 1;
+    } else if (!absent("BootNext")) {
+        uint8_t data[2]; uint32_t size = 2, attr;
+        if (get_variable("BootNext", data, &size, &attr) || size != 2) return 1;
+        printf("Leaving another BootNext unchanged.\n");
+    }
+    if (absent("BootCA06")) return 0;
+    if (!equals("BootCA06", option, length)) return 1;
+    return set_variable("BootCA06", NULL, 0, 0) || !absent("BootCA06");
+}
+
+static int load_option(const char *disk, uint8_t *option, size_t *bytes) {
+    int fd = open(disk, 0x80000 | 0x20000);
+    uint8_t header[4096]; uint8_t *table = NULL; int result = 1;
+    if (fd < 0) return 1;
+    if (pread(fd, header, sizeof(header), 4096) != sizeof(header) || memcmp(header, "EFI PART", 8)) goto done;
+    uint32_t count = le32(header + 80), stride = le32(header + 84);
+    if (!count || count > 512 || stride < 128 || stride > 4096 || le64(header + 72) > 256) goto done;
+    size_t size = (size_t)count * stride;
+    table = malloc(size); if (!table) goto done;
+    if (pread(fd, table, size, (long)(le64(header + 72) * 4096)) != (long)size) goto done;
+    result = CanoeBuildOption(header, table, size, option, bytes);
+done:
+    free(table); close(fd); return result;
+}
+
+static int make_option(const char *disk, const char *output) {
+    uint8_t option[512]; size_t bytes = sizeof(option);
+    return load_option(disk, option, &bytes) || write_file(output, option, bytes);
+}
+
+static int validate_option(const uint8_t *option, size_t bytes) {
+    uint8_t current[512]; size_t size = sizeof(current);
+    return load_option("/dev/block/sdf", current, &size) || bytes != size || memcmp(option, current, bytes);
+}
+
+static int make_image(char **paths) {
+    size_t size = 0, bds_size = 0; uint8_t *original = NULL, *bds = NULL, *image = NULL; int result = 1;
+    original = read_file(paths[0], &size, 32 * 1024 * 1024);
+    if (!original) goto done;
+    bds = read_file(paths[1], &bds_size, 2 * 1024 * 1024); if (!bds) goto done;
+    image = malloc(size); if (!image) goto done;
+    int r = CanoeBuildCarrier(original, size, bds, bds_size, image);
+    printf("carrier_layout=%d\n", r);
+    if (r) goto done;
+    result = write_file(paths[2], image, size);
+done:
+    free(original); free(image); free(bds); return result;
+}
+
+int main(int argc, char **argv) {
+    char model[128] = {0}, build[128] = {0};
+    if (argc < 2 || getuid() != 0) return 2;
+    __system_property_get("ro.product.model", model);
+    __system_property_get("ro.build.display.id", build);
+    if (strcmp(model, "PYB110") || strcmp(build, "PYB110_17.0.0.155(CN01)")) return 2;
+    if (!strcmp(argv[1], "option") && argc == 4) return make_option(argv[2], argv[3]);
+    if (!strcmp(argv[1], "image") && argc == 5) return make_image(argv + 2);
+    if (!strcmp(argv[1], "verify-option") && argc == 3) {
+        size_t size = 0; uint8_t *option = read_file(argv[2], &size, 512);
+        int r = !option || validate_option(option, size); free(option); return r;
+    }
+    int info = !strcmp(argv[1], "info") && argc == 2;
+    int preflight = !strcmp(argv[1], "preflight") && argc == 2;
+    int reserve = !strcmp(argv[1], "reserve") && argc == 3;
+    int arm = !strcmp(argv[1], "arm") && argc == 3;
+    int remove = !strcmp(argv[1], "disarm") && argc == 3;
+    int snapshot = !strcmp(argv[1], "snapshot") && argc == 3;
+    if (!info && !preflight && !reserve && !arm && !remove && !snapshot) return 2;
+    alarm(20);
+    int result = 1;
+    if (connect_service(!info)) goto done;
+    if (snapshot) {
+        if (save_variable("BootOrder", argv[2]) || save_variable("BootNext", argv[2]) || save_variable("BootCA06", argv[2]) || save_variable("SecureBoot", argv[2]) || save_variable("SetupMode", argv[2])) goto done;
+        result = 0; goto done;
+    }
+    if (reserve || arm || remove) {
+        size_t length = 0; uint8_t *option = read_file(argv[2], &length, 512);
+        if (!option || validate_option(option, length)) { free(option); goto done; }
+        const uint8_t next[] = {6, 0xca};
+        if (reserve) {
+            if (one_shot_only() && absent("BootNext") && absent("BootCA06") && !set_variable("BootCA06", option, length, 7) && equals("BootCA06", option, length)) result = 0;
+        } else if (arm) {
+            if (one_shot_only() && equals("BootCA06", option, length) && absent("BootNext") && !set_variable("BootNext", next, 2, 7) && equals("BootNext", next, 2)) result = 0;
+        } else result = disarm(option, length);
+        free(option); goto done;
+    }
+    const char *names[] = {"SecureBoot", "SetupMode", "BootNext", "BootOrder"};
+    for (unsigned int i = 0; i < 4; i++) {
+        uint8_t data[8192] = {0}; uint32_t size = sizeof(data), attributes = 0;
+        int r = get_variable(names[i], data, &size, &attributes);
+        if (!r) {
+            printf("%s=", names[i]);
+            for (uint32_t j = 0; j < size; j++) printf("%02x", data[j]);
+            printf("\n");
+        }
+    }
+    result = info ? 0 : !(one_shot_only() && absent("BootNext") && absent("BootCA06"));
+done:
+    release(&service); release(&application); release(&manager); release(&environment);
+    alarm(0);
+    fflush(NULL);
+    return result;
+}
+
+#endif

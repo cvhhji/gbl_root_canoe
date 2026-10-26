@@ -1,18 +1,4 @@
 /*
- * Persistent settings for the super-fastboot boot menu.
- *
- * The firmware refuses EFI variables it does not already know about, so the
- * menu keeps its two settings in the EFI System Partition instead. Only the
- * last megabyte of that partition is safe to write, so the store sits at the
- * very end of it: two 1 KiB NUL-padded ASCII records, back to back, ending on
- * the partition's last byte.
- *
- *   [ ... file system ... | 1 MiB scratch ... | rec 0 | rec 1 ] end of ESP
- *
- * Nothing here goes through the file system: the records must survive the ESP
- * being written by an operating system that knows nothing about them, and a
- * file would not.
- *
  * Copyright (c) 2026, contributors to the canoe ABL tree.
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -28,23 +14,104 @@
 #include <Guid/Gpt.h>
 #include <Protocol/BlockIo.h>
 #include <Protocol/PartitionInfo.h>
+#include <Protocol/LoadedImage.h>
+#include <Protocol/SimpleFileSystem.h>
+#include <Guid/FileInfo.h>
 
-/* Keeps the translation unit legal when the feature is compiled out. */
+STATIC EFI_STATUS
+SfbFileStore (IN UINTN Slot, IN OUT CHAR8 *Record, IN BOOLEAN Write)
+{
+  EFI_STATUS Status;
+  EFI_LOADED_IMAGE_PROTOCOL *Loaded = NULL;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs = NULL;
+  EFI_FILE_PROTOCOL *Root = NULL;
+  EFI_FILE_PROTOCOL *File = NULL;
+  EFI_PARTITION_INFO_PROTOCOL *Partition = NULL;
+  BOOLEAN IsDriver = FALSE;
+  CHAR8 Marker[10];
+  UINTN Bytes = sizeof (Marker);
+  UINT64 InfoBuffer[64];
+  UINTN InfoBytes = sizeof (InfoBuffer);
+
+  Status = gBS->HandleProtocol (gImageHandle, &gEfiLoadedImageProtocolGuid,
+                               (VOID **)&Loaded);
+  if (EFI_ERROR (Status) || Loaded == NULL) {
+    return EFI_UNSUPPORTED;
+  }
+  if (!EFI_ERROR (gBS->HandleProtocol (Loaded->DeviceHandle,
+                                       &gEfiPartitionInfoProtocolGuid,
+                                       (VOID **)&Partition)) && Partition != NULL &&
+      Partition->Type == PARTITION_TYPE_GPT) {
+    IsDriver = (BOOLEAN)(StrnCmp (Partition->Info.Gpt.PartitionName,
+                                  L"DRIVER", 7) == 0);
+  }
+  Status = gBS->HandleProtocol (Loaded->DeviceHandle,
+                               &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+  if (EFI_ERROR (Status) || Fs == NULL) {
+    return IsDriver ? EFI_DEVICE_ERROR : EFI_UNSUPPORTED;
+  }
+  Status = Fs->OpenVolume (Fs, &Root);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+  Status = Root->Open (Root, &File, L"\\CANOETST", EFI_FILE_MODE_READ, 0);
+  if (Status == EFI_NOT_FOUND) {
+    Root->Close (Root);
+    return IsDriver ? EFI_VOLUME_CORRUPTED : EFI_UNSUPPORTED;
+  }
+  if (EFI_ERROR (Status)) {
+    Root->Close (Root);
+    return Status;
+  }
+  Status = File->Read (File, &Bytes, Marker);
+  File->Close (File);
+  File = NULL;
+  if (EFI_ERROR (Status) || Bytes != sizeof (Marker) ||
+      CompareMem (Marker, "CANOETEST1", sizeof (Marker)) != 0) {
+    Root->Close (Root);
+    return EFI_VOLUME_CORRUPTED;
+  }
+  Status = Root->Open (Root, &File, L"\\SETTINGS.BIN",
+                       EFI_FILE_MODE_READ | (Write ? EFI_FILE_MODE_WRITE : 0), 0);
+  Root->Close (Root);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+  Status = File->GetInfo (File, &gEfiFileInfoGuid, &InfoBytes, InfoBuffer);
+  if (!EFI_ERROR (Status) &&
+      ((EFI_FILE_INFO *)InfoBuffer)->FileSize != SFB_STORE_SLOT_BYTES * SFB_STORE_SLOTS) {
+    Status = EFI_VOLUME_CORRUPTED;
+  }
+  if (!EFI_ERROR (Status)) {
+    Status = File->SetPosition (File, Slot * SFB_STORE_SLOT_BYTES);
+  }
+  Bytes = SFB_STORE_SLOT_BYTES;
+  if (!EFI_ERROR (Status)) {
+    Status = Write ? File->Write (File, &Bytes, Record) : File->Read (File, &Bytes, Record);
+    if (!EFI_ERROR (Status) && Bytes != SFB_STORE_SLOT_BYTES) {
+      Status = EFI_DEVICE_ERROR;
+    }
+  }
+  if (!EFI_ERROR (Status) && Write) {
+    Status = File->Flush (File);
+  }
+  File->Close (File);
+  return Status;
+}
+
 CONST CHAR8 *gSfbStoreModuleTag = "SuperFbStore";
 
 #define SFB_STORE_BYTES  (SFB_STORE_SLOT_BYTES * SFB_STORE_SLOTS)
 
-/* Refuse anything too small to have the megabyte of slack we were promised. */
 #define SFB_STORE_MIN_PARTITION_BYTES  SIZE_1MB
 
-/* Sanity bounds on a GPT header before its contents are believed. */
 #define SFB_GPT_MAX_ENTRIES     512
 #define SFB_GPT_MIN_ENTRY_SIZE  128
 #define SFB_GPT_MAX_ENTRY_SIZE  4096
 
 typedef struct {
   EFI_BLOCK_IO_PROTOCOL  *BlockIo;
-  /* Absolute byte offset of the first store record on BlockIo's media. */
+
   UINT64                 Offset;
   BOOLEAN                Resolved;
   BOOLEAN                Failed;
@@ -52,12 +119,6 @@ typedef struct {
 
 STATIC SFB_STORE_LOCATION  mSfbStore = { NULL, 0, FALSE, FALSE };
 
-/* ---- finding the EFI System Partition ----------------------------------- */
-
-/*
- * Read Blocks starting at Lba into a freshly allocated, IoAlign-correct buffer.
- * Caller releases it with FreeAlignedPages () and the same page count.
- */
 STATIC
 EFI_STATUS
 SfbReadBlocks (IN EFI_BLOCK_IO_PROTOCOL  *BlockIo,
@@ -93,18 +154,12 @@ SfbReadBlocks (IN EFI_BLOCK_IO_PROTOCOL  *BlockIo,
   return Status;
 }
 
-/* The GPT name the platform gives its EFI System Partition. */
 #define SFB_ESP_PARTITION_NAME  L"efisp"
 
 #define SFB_ESP_NO_MATCH    0
 #define SFB_ESP_BY_TYPE     1
 #define SFB_ESP_BY_NAME     2
 
-/*
- * How well an entry answers to "the ESP". PartitionName is a fixed-width field
- * and is not required to be NUL terminated, so it is copied out before being
- * compared as a string.
- */
 STATIC
 UINTN
 SfbRankEspEntry (IN CONST EFI_PARTITION_ENTRY *Entry)
@@ -118,8 +173,6 @@ SfbRankEspEntry (IN CONST EFI_PARTITION_ENTRY *Entry)
     return SFB_ESP_BY_NAME;
   }
 
-  /* Fallback for a table that names it something else: the type GUID is what
-   * makes a partition an ESP in the first place. */
   if (CompareGuid (&Entry->PartitionTypeGUID, &gEfiPartTypeSystemPartGuid)) {
     return SFB_ESP_BY_TYPE;
   }
@@ -127,13 +180,6 @@ SfbRankEspEntry (IN CONST EFI_PARTITION_ENTRY *Entry)
   return SFB_ESP_NO_MATCH;
 }
 
-/*
- * Look for the EFI System Partition in Disk's GPT. On success the partition's
- * last byte, exclusive, is returned as an absolute offset on Disk.
- *
- * The named partition wins over a merely ESP-typed one, so a table holding both
- * still resolves to the one the platform means.
- */
 STATIC
 EFI_STATUS
 SfbFindEspInGpt (IN EFI_BLOCK_IO_PROTOCOL *Disk, OUT UINT64 *PartitionEnd)
@@ -206,7 +252,6 @@ SfbFindEspInGpt (IN EFI_BLOCK_IO_PROTOCOL *Disk, OUT UINT64 *PartitionEnd)
     Status = EFI_SUCCESS;
     Best = Rank;
 
-    /* Nothing outranks the partition the platform actually named. */
     if (Best == SFB_ESP_BY_NAME) {
       break;
     }
@@ -221,10 +266,6 @@ Done:
   return Status;
 }
 
-/*
- * Second way in, for platforms whose storage stack hands out partitions but no
- * readable GPT: ask the partition handles themselves what they are.
- */
 STATIC
 EFI_STATUS
 SfbFindEspByPartitionInfo (OUT EFI_BLOCK_IO_PROTOCOL **BlockIo,
@@ -272,7 +313,6 @@ SfbFindEspByPartitionInfo (OUT EFI_BLOCK_IO_PROTOCOL **BlockIo,
       continue;
     }
 
-    /* Addressed relative to the partition, so its end is the media's end. */
     *BlockIo = Candidate;
     *PartitionEnd = Bytes;
     Status = EFI_SUCCESS;
@@ -284,7 +324,6 @@ SfbFindEspByPartitionInfo (OUT EFI_BLOCK_IO_PROTOCOL **BlockIo,
   return Status;
 }
 
-/* Resolve once and remember the answer, good or bad. */
 STATIC
 EFI_STATUS
 SfbResolveStore (VOID)
@@ -302,8 +341,6 @@ SfbResolveStore (VOID)
     return EFI_NOT_FOUND;
   }
 
-  /* Whole disks first: reading the GPT ourselves works even where nothing has
-   * published partition metadata. */
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiBlockIoProtocolGuid,
                                     NULL, &Count, &Handles);
   if (!EFI_ERROR (Status) && Handles != NULL) {
@@ -339,7 +376,7 @@ SfbResolveStore (VOID)
 
   if (mSfbStore.BlockIo->Media->ReadOnly) {
     DEBUG ((EFI_D_ERROR, "SFB: ESP media is read only\n"));
-    /* Still usable for reads, so this is not a resolution failure. */
+
   }
 
   mSfbStore.Offset = PartitionEnd - SFB_STORE_BYTES;
@@ -351,16 +388,6 @@ SfbResolveStore (VOID)
   return EFI_SUCCESS;
 }
 
-/* ---- record access ------------------------------------------------------ */
-
-/*
- * The store is not block aligned in general - a 4 KiB sector device puts both
- * records inside one block - so every access works on the whole run of blocks
- * that covers it, and a write is a read-modify-write of that run.
- *
- * On success *Buffer holds the blocks, *Skip is where the store starts inside
- * them, and *Lba / *Blocks describe where they came from.
- */
 STATIC
 EFI_STATUS
 SfbMapStoreBlocks (OUT VOID      **Buffer,
@@ -397,12 +424,33 @@ SfbStoreRead (IN UINTN Slot, OUT CHAR8 *Out, IN UINTN OutBytes)
   UINTN       Skip = 0;
   CONST CHAR8 *Record;
   UINTN       Index;
+  CHAR8       FileRecord[SFB_STORE_SLOT_BYTES];
 
   if (Slot >= SFB_STORE_SLOTS || OutBytes == 0) {
     return EFI_INVALID_PARAMETER;
   }
 
   Out[0] = '\0';
+
+  Status = SfbFileStore (Slot, FileRecord, FALSE);
+  if (Status != EFI_UNSUPPORTED) {
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+    for (Index = 0; Index < SFB_STORE_SLOT_BYTES && Index < OutBytes - 1; Index++) {
+      CHAR8 Ch = FileRecord[Index];
+      if (Ch == '\0' || Ch == '\r' || Ch == '\n') {
+        break;
+      }
+      if (Ch < 0x20 || (UINT8)Ch > 0x7e) {
+        Index = 0;
+        break;
+      }
+      Out[Index] = Ch;
+    }
+    Out[Index] = '\0';
+    return EFI_SUCCESS;
+  }
 
   Status = SfbMapStoreBlocks (&Buffer, &Pages, &Lba, &Blocks, &Skip);
   if (EFI_ERROR (Status)) {
@@ -411,8 +459,6 @@ SfbStoreRead (IN UINTN Slot, OUT CHAR8 *Out, IN UINTN OutBytes)
 
   Record = (CONST CHAR8 *)Buffer + Skip + Slot * SFB_STORE_SLOT_BYTES;
 
-  /* Never-written media is whatever the flash was left as, so nothing beyond
-   * the record's own bounds is trusted and the copy is terminated by us. */
   for (Index = 0;
        Index < SFB_STORE_SLOT_BYTES && Index < OutBytes - 1;
        Index++) {
@@ -421,8 +467,7 @@ SfbStoreRead (IN UINTN Slot, OUT CHAR8 *Out, IN UINTN OutBytes)
     if (Ch == '\0' || Ch == '\r' || Ch == '\n') {
       break;
     }
-    /* Printable 7-bit only: a record is text by definition, and this keeps
-     * garbage from reaching the console or the path handling. */
+
     if (Ch < 0x20 || (UINT8)Ch > 0x7e) {
       Index = 0;
       break;
@@ -448,6 +493,7 @@ SfbStoreWrite (IN UINTN Slot, IN CONST CHAR8 *Text)
   UINTN       Skip = 0;
   CHAR8       *Record;
   UINTN       Length;
+  CHAR8       FileRecord[SFB_STORE_SLOT_BYTES];
 
   if (Slot >= SFB_STORE_SLOTS) {
     return EFI_INVALID_PARAMETER;
@@ -456,6 +502,13 @@ SfbStoreWrite (IN UINTN Slot, IN CONST CHAR8 *Text)
   Length = AsciiStrLen (Text);
   if (Length >= SFB_STORE_SLOT_BYTES) {
     return EFI_BAD_BUFFER_SIZE;
+  }
+
+  ZeroMem (FileRecord, sizeof (FileRecord));
+  CopyMem (FileRecord, Text, Length);
+  Status = SfbFileStore (Slot, FileRecord, TRUE);
+  if (Status != EFI_UNSUPPORTED) {
+    return Status;
   }
 
   Status = SfbMapStoreBlocks (&Buffer, &Pages, &Lba, &Blocks, &Skip);
@@ -468,8 +521,6 @@ SfbStoreWrite (IN UINTN Slot, IN CONST CHAR8 *Text)
     return EFI_WRITE_PROTECTED;
   }
 
-  /* Only this slot changes; the other one and the rest of the blocks are put
-   * back exactly as they were read. */
   Record = (CHAR8 *)Buffer + Skip + Slot * SFB_STORE_SLOT_BYTES;
   ZeroMem (Record, SFB_STORE_SLOT_BYTES);
   CopyMem (Record, Text, Length);
@@ -483,8 +534,7 @@ SfbStoreWrite (IN UINTN Slot, IN CONST CHAR8 *Text)
   if (EFI_ERROR (Status)) {
     DEBUG ((EFI_D_ERROR, "SFB: store write failed: %r\n", Status));
   } else {
-    /* Flushing matters: the user may power the device off the moment the menu
-     * hands over to the image it just recorded. */
+
     Status = mSfbStore.BlockIo->FlushBlocks (mSfbStore.BlockIo);
     if (EFI_ERROR (Status)) {
       DEBUG ((EFI_D_ERROR, "SFB: store flush failed: %r\n", Status));

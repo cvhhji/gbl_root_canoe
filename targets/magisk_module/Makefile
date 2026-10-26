@@ -31,8 +31,10 @@ submodule_ablfvextractor: copy_resources
 submodule_magisk_tools: copy_resources
 	cd ../../submodules/magisk_tools && make build_android
 	cp ../../submodules/magisk_tools/build/patch_tools ./build/module/bin/patch_tools
-build: submodule_uefi submodule_patcher submodule_ablfvextractor submodule_magisk_tools
+pyb110_efi: copy_resources
+	python3 ../pyb110_efi/build.py --output build/module/bin/canoe_bootctl
+build: submodule_uefi submodule_patcher submodule_ablfvextractor submodule_magisk_tools pyb110_efi
 	python3 ../../tools/strip_comments.py build/module
 	cd build/module && zip -r ../module_android.zip ./
 
-.PHONY: clean copy_resources submodule_uefi submodule_patcher submodule_ablfvextractor submodule_magisk_tools build
+.PHONY: clean copy_resources submodule_uefi submodule_patcher submodule_ablfvextractor submodule_magisk_tools pyb110_efi build

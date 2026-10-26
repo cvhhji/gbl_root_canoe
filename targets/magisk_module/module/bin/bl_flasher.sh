@@ -1,4 +1,9 @@
 #!/system/bin/sh
+
+if [ "$(getprop ro.product.model)" = PYB110 ]; then
+  echo "PYB110 uses the EFI boot test. Use the module action button to set BootNext."
+  exit 1
+fi
 if [ -z "$MODDIR" ]; then
   MODDIR=$(CDPATH= cd -- "$(dirname "$0")/.." 2>/dev/null && pwd)
 fi

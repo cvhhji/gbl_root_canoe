@@ -1,5 +1,10 @@
 #!/system/bin/sh
 
+if [ "$(getprop ro.product.model)" = PYB110 ]; then
+  . "$MODPATH/bin/android_esp.sh"
+  exit 0
+fi
+
 export KSU_MODULE=${KSU_MODULE:-fake_bl_efisp}
 
 read_volume_key() {
