@@ -1,11 +1,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct Object Object;
-typedef union Arg Arg;
-struct Object { int32_t (*invoke)(void *, uint32_t, Arg *, uint32_t); void *context; };
-union Arg { struct { void *data; size_t size; } buffer; Object object; };
-
 extern int printf(const char *, ...);
 extern int fflush(void *);
 extern unsigned int getuid(void);
@@ -29,6 +24,10 @@ extern long pread(int, void *, size_t, long);
 extern long lseek(int, long, int);
 extern int fsync(int);
 extern char *realpath(const char *, char *);
+extern int getppid(void);
+extern unsigned int sleep(unsigned int);
+typedef void (*SignalHandler)(int);
+extern SignalHandler signal(int, SignalHandler);
 
 static uint16_t le16(const uint8_t *p) { return p[0] | (uint16_t)p[1] << 8; }
 static uint32_t le32(const uint8_t *p) { return le16(p) | (uint32_t)le16(p + 2) << 16; }
@@ -152,22 +151,15 @@ static int write_file(const char *path, const void *data, size_t size) {
     int r = fsync(fd); if (close(fd)) r = -1; return r != 0;
 }
 
-static Object environment, manager, application, service;
+typedef struct { uint8_t *buffer; } QseeHandle;
+static QseeHandle *service;
+static int (*qsee_send)(QseeHandle *, void *, uint32_t, void *, uint32_t);
+static int (*qsee_shutdown)(QseeHandle **);
 static const uint8_t global_guid[16] = {0x61,0xdf,0xe4,0x8b,0xca,0x93,0xd2,0x11,0xaa,0x0d,0,0xe0,0x98,3,0x2b,0x8c};
-
-static void release(Object *o) {
-    if (o->invoke) o->invoke(o->context, 0xffff, NULL, 0);
-    memset(o, 0, sizeof(*o));
-}
-
-static int open_object(Object parent, uint32_t uid, Object *out) {
-    Arg a[2] = {0};
-    a[0].buffer.data = &uid;
-    a[0].buffer.size = 4;
-    int r = parent.invoke(parent.context, 0, a, 0x1001);
-    if (!r) *out = a[1].object;
-    return r;
-}
+static const char lookup_only_path[] = "/canoe_attach_only/" "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+enum { SHARED_SIZE = 16384, MAX_VARIABLE_SIZE = 8192 };
+#define VARIABLE_NOT_FOUND ((int)0x8000000eu)
+_Static_assert(sizeof(lookup_only_path) - 1 > 80, "The absent-app path must reject before any file load");
 
 typedef struct {
     uint64_t flags;
@@ -185,166 +177,116 @@ static const char *linker_error(void) {
     return error ? error : "Linker did not return an error";
 }
 
-static void *load_vendor_client(void) {
+static int connect_service(void) {
     void *support = dlopen("/system/lib64/libvndksupport.so", 2);
-    if (!support) {
-        printf("vendor_loader_error=%s\n", linker_error());
-        return NULL;
-    }
+    if (!support) { printf("vendor_loader_error=%s\n", linker_error()); return 1; }
     void *(*get_namespace)(const char *) = (void *(*)(const char *))dlsym(support, "android_get_exported_namespace");
     void *(*load_ext)(const char *, int, const LibraryExtInfo *) = (void *(*)(const char *, int, const LibraryExtInfo *))dlsym(support, "android_dlopen_ext");
-    if (!get_namespace || !load_ext) {
-        printf("vendor_loader_symbol_error=%s\n", linker_error());
-        return NULL;
-    }
+    if (!get_namespace || !load_ext) { printf("vendor_loader_symbol_error=%s\n", linker_error()); return 1; }
     LibraryExtInfo info = {0};
     info.flags = 0x200;
     info.namespace = get_namespace("sphal");
-    if (!info.namespace) {
-        printf("vendor_namespace_missing=sphal\n");
-        return NULL;
-    }
-    void *library = load_ext("/vendor/lib64/libminkdescriptor.so", 2, &info);
-    printf("vendor_library_loaded=%d\n", library != NULL);
-    if (!library) {
-        printf("vendor_library_error=%s\n", linker_error());
-    }
-    fflush(NULL);
-    return library;
-}
-
-static int connect_service(int load) {
-    void *library = load_vendor_client();
-    if (!library) return 1;
-    int32_t (*get_env)(Object *) = (int32_t (*)(Object *))dlsym(library, "TZCom_getClientEnvObject");
-    if (!get_env) {
-        printf("vendor_client_symbol_error=%s\n", linker_error());
+    if (!info.namespace) { printf("vendor_namespace_missing=sphal\n"); return 1; }
+    void *library = load_ext("/vendor/lib64/libQSEEComAPI_compat.so", 2, &info);
+    if (!library) { printf("vendor_library_error=%s\n", linker_error()); return 1; }
+    int (*start)(QseeHandle **, const char *, const char *, uint32_t) = (int (*)(QseeHandle **, const char *, const char *, uint32_t))dlsym(library, "QSEECom_start_app_impl");
+    qsee_send = (int (*)(QseeHandle *, void *, uint32_t, void *, uint32_t))dlsym(library, "QSEECom_send_cmd_impl");
+    qsee_shutdown = (int (*)(QseeHandle **))dlsym(library, "QSEECom_shutdown_app_impl");
+    if (!start || !qsee_send || !qsee_shutdown) { printf("vendor_service_symbol_error=%s\n", linker_error()); return 1; }
+    int r = start(&service, lookup_only_path, "qcom.tz.uefisecapp", SHARED_SIZE);
+    printf("attach_existing=%d handle=%d buffer=%d\n", r, service != NULL, service && service->buffer != NULL);
+    if (r || !service || !service->buffer) {
+        printf("Normal reboot required; the original variable service is unavailable.\n");
         return 1;
     }
-    int r = get_env(&environment);
-    printf("client_environment=%d\n", r);
-    fflush(NULL);
-    if (r || !environment.invoke) return 1;
-    r = open_object(environment, 0x19d, &service);
-    printf("uefi_service_direct=%d\n", r);
-    fflush(NULL);
-    if (!r && service.invoke) return 0;
-    r = open_object(environment, 0x97, &manager);
-    printf("client_open=%d\n", r);
-    fflush(NULL);
-    Arg a[3] = {0};
-    const char *name = "qcom.tz.uefisecapp";
-    a[0].buffer.data = (void *)name;
-    a[0].buffer.size = strlen(name);
-    if (!r && manager.invoke) {
-        r = manager.invoke(manager.context, 0, a, 0x1001);
-        if (!r) application = a[1].object;
-        printf("client_application=%d\n", r);
-        fflush(NULL);
-    }
-    if (!application.invoke) {
-        release(&manager);
-        r = open_object(environment, 0x7a, &manager);
-        printf("manager_open=%d\n", r);
-        fflush(NULL);
-        if (r || !manager.invoke) return 1;
-        uint32_t kind = 0xffffffff;
-        memset(a, 0, sizeof(a));
-        a[0].buffer.data = (void *)name;
-        a[0].buffer.size = strlen(name);
-        a[1].buffer.data = &kind;
-        a[1].buffer.size = 4;
-        r = manager.invoke(manager.context, 2, a, 0x1011);
-        if (!r) application = a[2].object;
-        printf("manager_application=%d kind=%u\n", r, kind);
-        fflush(NULL);
-    }
-    if (!application.invoke && load) {
-        release(&manager);
-        r = open_object(environment, 3, &manager);
-        printf("signed_loader_open=%d\n", r);
-        fflush(NULL);
-        if (!r && manager.invoke) {
-            char slot[128] = {0};
-            __system_property_get("ro.boot.slot_suffix", slot);
-            if (strcmp(slot, "_a") && strcmp(slot, "_b")) return 1;
-            size_t bytes = 0;
-            char resolved[4096];
-            if (!realpath(slot[1] == 'a' ? "/dev/block/by-name/uefisecapp_a" : "/dev/block/by-name/uefisecapp_b", resolved)) return 1;
-            uint8_t *elf = read_file(resolved, &bytes, 2 * 1024 * 1024);
-            if (!elf || bytes != 2 * 1024 * 1024 || memcmp(elf, "\177ELF\2\1", 6)) { free(elf); return 1; }
-            memset(a, 0, sizeof(a)); a[0].buffer.data = elf; a[0].buffer.size = bytes;
-            r = manager.invoke(manager.context, 0, a, 0x1001);
-            Object controller = {0}; if (!r) controller = a[1].object;
-            free(elf); printf("signed_application_load=%d\n", r);
-            fflush(NULL);
-            if (!r && controller.invoke) {
-                memset(a, 0, sizeof(a));
-                r = controller.invoke(controller.context, 2, a, 0x1000);
-                if (!r) application = a[0].object;
-            }
-            release(&controller);
-        }
-    }
-    if (r || !application.invoke) return 1;
-    uint32_t uid = 0x19d;
-    memset(a, 0, sizeof(a));
-    a[0].buffer.data = &uid;
-    a[0].buffer.size = 4;
-    a[1].object = environment;
-    r = application.invoke(application.context, 0, a, 0x1101);
-    if (!r) service = a[2].object;
-    printf("uefi_service_open=%d\n", r);
-    fflush(NULL);
-    return r || !service.invoke;
+    return 0;
+}
+
+static uint32_t *request_variable(const char *name, uint32_t command, uint32_t header) {
+    size_t length = strlen(name);
+    if (!service || !service->buffer || length > 126 || !length) return NULL;
+    memset(service->buffer, 0, SHARED_SIZE);
+    uint32_t *request = (uint32_t *)service->buffer;
+    request[0] = command;
+    request[2] = header;
+    request[3] = (uint32_t)(length + 1) * 2;
+    request[4] = header + request[3];
+    request[5] = 16;
+    uint16_t *wide = (uint16_t *)(service->buffer + header);
+    for (size_t i = 0; i < length; i++) wide[i] = (uint8_t)name[i];
+    memcpy(service->buffer + request[4], global_guid, sizeof(global_guid));
+    request[1] = request[4] + 16;
+    return request;
+}
+
+static int exchange(uint32_t *request, uint32_t capacity, uint32_t **reply) {
+    uint32_t input_size = (request[1] + 63) & ~63u;
+    uint32_t offset = input_size < 512 ? 512 : input_size;
+    capacity = (capacity + 63) & ~63u;
+    if (offset > SHARED_SIZE || capacity > SHARED_SIZE - offset) return -1;
+    *reply = (uint32_t *)(service->buffer + offset);
+    return qsee_send(service, request, input_size, *reply, capacity);
 }
 
 static int get_variable(const char *name, uint8_t *data, uint32_t *size, uint32_t *attributes) {
-    uint16_t wide[128] = {0};
-    size_t length = strlen(name);
-    if (length > 126 || *size > 65536) return -1;
-    for (size_t i = 0; i < length; i++) wide[i] = (uint8_t)name[i];
-    struct { uint8_t guid[16]; uint32_t size; } input;
-    struct { uint32_t size, attributes, status; } output = {0, 0, 0xffffffff};
-    memcpy(input.guid, global_guid, 16);
-    input.size = *size;
-    uint32_t attr = 0;
-    Arg a[5] = {0};
-    a[0].buffer.data = &input; a[0].buffer.size = sizeof(input);
-    a[1].buffer.data = wide; a[1].buffer.size = (length + 1) * 2;
-    a[2].buffer.data = &attr; a[2].buffer.size = 4;
-    a[3].buffer.data = &output; a[3].buffer.size = sizeof(output);
-    a[4].buffer.data = data; a[4].buffer.size = *size;
-    int r = service.invoke(service.context, 0, a, 0x23);
-    printf("get %s: transport=%d status=%u size=%u attributes=%u\n", name, r, output.status, output.size, output.attributes);
+    if (*size > MAX_VARIABLE_SIZE || (*size && !data)) return -1;
+    uint32_t *request = request_variable(name, 0x8000, 28), *response = NULL;
+    if (!request) return -1;
+    request[6] = *size;
+    uint32_t capacity = (24 + *size + 63) & ~63u;
+    int r = exchange(request, capacity, &response);
+    printf("get %s: transport=%d status=%08x\n", name, r, response ? response[2] : 0xffffffffu);
     fflush(NULL);
-    if (r || a[3].buffer.size != sizeof(output) || output.size > *size || a[4].buffer.size < output.size) return -1;
-    *size = output.size;
-    *attributes = output.attributes;
-    return (int)output.status;
+    if (r || !response || response[0] != 0x8000 || response[1] < 24 || response[1] > capacity) return -1;
+    if (response[2]) return (int)response[2];
+    if (response[4] < 24 || response[4] > response[1] || response[5] > response[1] - response[4] || response[5] > *size) return -1;
+    memcpy(data, (uint8_t *)response + response[4], response[5]);
+    *size = response[5];
+    *attributes = response[3];
+    return 0;
 }
 
 static int set_variable(const char *name, const uint8_t *data, uint32_t size, uint32_t attributes) {
-    uint16_t wide[128] = {0}; size_t length = strlen(name);
-    if (length > 126 || size > 65536) return -1;
-    for (size_t i = 0; i < length; i++) wide[i] = (uint8_t)name[i];
-    struct { uint8_t guid[16]; uint32_t attributes, size; } input;
-    memcpy(input.guid, global_guid, 16); input.attributes = attributes; input.size = size;
-    uint32_t status = 0xffffffff;
-    Arg a[4] = {0};
-    a[0].buffer.data = &input; a[0].buffer.size = sizeof(input);
-    a[1].buffer.data = wide; a[1].buffer.size = (length + 1) * 2;
-    a[2].buffer.data = (void *)data; a[2].buffer.size = size;
-    a[3].buffer.data = &status; a[3].buffer.size = 4;
-    int r = service.invoke(service.context, 1, a, 0x13);
-    printf("set %s: transport=%d status=%u\n", name, r, status);
+    if (strcmp(name, "BootNext") && strcmp(name, "Boot6006")) return -1;
+    if (size > 512 || (size ? !data || attributes != 7 : attributes != 0)) return -1;
+    if (!strcmp(name, "BootNext") && size && (size != 2 || le16(data) != 0x6006)) return -1;
+    uint32_t *request = request_variable(name, 0x8001, 36), *response = NULL;
+    if (!request) return -1;
+    request[6] = attributes;
+    request[7] = request[1];
+    request[8] = size;
+    if (size) memcpy(service->buffer + request[7], data, size);
+    request[1] += size;
+    int r = exchange(request, 64, &response);
+    printf("set %s: transport=%d status=%08x\n", name, r, response ? response[2] : 0xffffffffu);
     fflush(NULL);
-    return r || a[3].buffer.size != 4 ? -1 : (int)status;
+    if (r || !response || response[0] != 0x8001 || response[1] < 20 || response[1] > 64) return -1;
+    return (int)response[2];
+}
+
+static int unsigned_boot_allowed(void) {
+    uint8_t data[1]; uint32_t size = 1, attributes = 0;
+    if (get_variable("SecureBoot", data, &size, &attributes) || size != 1 || data[0]) return 0;
+    size = 1;
+    return !get_variable("SetupMode", data, &size, &attributes) && size == 1 && data[0] == 1;
+}
+
+static volatile int stop_requested;
+
+static void stop_service(int number) { (void)number; stop_requested = 1; }
+
+static int hold_service(const char *ready) {
+    int parent = getppid();
+    signal(1, stop_service); signal(2, stop_service); signal(15, stop_service);
+    if (parent <= 1 || write_file(ready, "ready\n", 6)) return 1;
+    alarm(0);
+    while (!stop_requested && getppid() == parent) sleep(1);
+    return 0;
 }
 
 static int absent(const char *name) {
     uint8_t data[8192]; uint32_t size = sizeof(data), attributes;
-    return get_variable(name, data, &size, &attributes) == 18;
+    return get_variable(name, data, &size, &attributes) == VARIABLE_NOT_FOUND;
 }
 
 static int equals(const char *name, const uint8_t *expected, size_t length) {
@@ -355,8 +297,8 @@ static int equals(const char *name, const uint8_t *expected, size_t length) {
 static int one_shot_only(void) {
     uint8_t order[8192]; uint32_t size = sizeof(order), attributes;
     int r = get_variable("BootOrder", order, &size, &attributes);
-    if (r == 18) return 1;
-    if (r || size % 2) return 0;
+    if (r == VARIABLE_NOT_FOUND) return 1;
+    if (r || attributes != 7 || !size || size % 2) return 0;
     for (uint32_t i = 0; i < size; i += 2) if (le16(order + i) == 0x6006) return 0;
     return 1;
 }
@@ -364,14 +306,14 @@ static int one_shot_only(void) {
 static int save_variable(const char *name, const char *directory_path) {
     uint8_t data[8200] = {0}; uint32_t size = sizeof(data) - 8, attributes = 0;
     int r = get_variable(name, data + 8, &size, &attributes);
-    if (r != 0 && r != 18) return 1;
-    put32(data, r == 18 ? 0xffffffff : attributes);
-    put32(data + 4, r == 18 ? 0 : size);
+    if (r != 0 && r != VARIABLE_NOT_FOUND) return 1;
+    put32(data, r == VARIABLE_NOT_FOUND ? 0xffffffff : attributes);
+    put32(data + 4, r == VARIABLE_NOT_FOUND ? 0 : size);
     char path[4096]; size_t dirbytes = strlen(directory_path), namebytes = strlen(name);
     if (dirbytes + namebytes + 6 >= sizeof(path)) return 1;
     memcpy(path, directory_path, dirbytes); path[dirbytes++] = '/';
     memcpy(path + dirbytes, name, namebytes); memcpy(path + dirbytes + namebytes, ".bin", 5);
-    return write_file(path, data, r == 18 ? 8 : size + 8);
+    return write_file(path, data, r == VARIABLE_NOT_FOUND ? 8 : size + 8);
 }
 
 static int disarm(const uint8_t *option, size_t length) {
@@ -441,16 +383,18 @@ int main(int argc, char **argv) {
     }
     int info = !strcmp(argv[1], "info") && argc == 2;
     int preflight = !strcmp(argv[1], "preflight") && argc == 2;
+    int hold = !strcmp(argv[1], "hold") && argc == 3;
     int reserve = !strcmp(argv[1], "reserve") && argc == 3;
     int arm = !strcmp(argv[1], "arm") && argc == 3;
     int remove = !strcmp(argv[1], "disarm") && argc == 3;
     int snapshot = !strcmp(argv[1], "snapshot") && argc == 3;
-    if (!info && !preflight && !reserve && !arm && !remove && !snapshot) return 2;
+    if (!hold && !info && !preflight && !reserve && !arm && !remove && !snapshot) return 2;
     alarm(20);
     printf("command=%s\n", argv[1]);
     fflush(NULL);
     int result = 1;
-    if (connect_service(!info)) goto done;
+    if (connect_service()) goto done;
+    if (hold) { result = hold_service(argv[2]); goto done; }
     if (snapshot) {
         if (save_variable("BootOrder", argv[2]) || save_variable("BootNext", argv[2]) || save_variable("Boot6006", argv[2]) || save_variable("SecureBoot", argv[2]) || save_variable("SetupMode", argv[2])) goto done;
         result = 0; goto done;
@@ -460,25 +404,31 @@ int main(int argc, char **argv) {
         if (!option || validate_option(option, length)) { free(option); goto done; }
         const uint8_t next[] = {6, 0x60};
         if (reserve) {
-            if (one_shot_only() && absent("BootNext") && absent("Boot6006") && !set_variable("Boot6006", option, length, 7) && equals("Boot6006", option, length)) result = 0;
+            if (unsigned_boot_allowed() && one_shot_only() && absent("BootNext") && absent("Boot6006") && !set_variable("Boot6006", option, length, 7) && equals("Boot6006", option, length)) result = 0;
         } else if (arm) {
-            if (one_shot_only() && equals("Boot6006", option, length) && absent("BootNext") && !set_variable("BootNext", next, 2, 7) && equals("BootNext", next, 2)) result = 0;
+            if (unsigned_boot_allowed() && one_shot_only() && equals("Boot6006", option, length) && absent("BootNext") && !set_variable("BootNext", next, 2, 7) && equals("BootNext", next, 2)) result = 0;
         } else result = disarm(option, length);
         free(option); goto done;
     }
     const char *names[] = {"SecureBoot", "SetupMode", "BootNext", "BootOrder"};
+    unsigned int found = 0;
     for (unsigned int i = 0; i < 4; i++) {
         uint8_t data[8192] = {0}; uint32_t size = sizeof(data), attributes = 0;
         int r = get_variable(names[i], data, &size, &attributes);
         if (!r) {
+            found++;
             printf("%s=", names[i]);
             for (uint32_t j = 0; j < size; j++) printf("%02x", data[j]);
             printf("\n");
         }
     }
-    result = info ? 0 : !(one_shot_only() && absent("BootNext") && absent("Boot6006"));
+    result = info ? !found : !(unsigned_boot_allowed() && one_shot_only() && absent("BootNext") && absent("Boot6006"));
 done:
-    release(&service); release(&application); release(&manager); release(&environment);
+    if (service && qsee_shutdown) {
+        int r = qsee_shutdown(&service);
+        printf("shutdown=%d handle=%d\n", r, service != NULL);
+        if (r) result = 1;
+    }
     alarm(0);
     fflush(NULL);
     return result;

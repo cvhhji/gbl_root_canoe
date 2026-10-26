@@ -7,6 +7,18 @@ DEST=$PERSIST/efisp
 DRIVER=/dev/block/by-name/DRIVER
 EXPECTED_DRIVER=a8a168177a6d5968b0c4914c1d33eb980a74f5363e553cce8bb7dc84b4ac09a9
 
+stop_efi_service() {
+  if [ -n "${SERVICE_PID:-}" ]; then
+    kill "$SERVICE_PID" 2>/dev/null || true
+    wait "$SERVICE_PID" 2>/dev/null || true
+    SERVICE_PID=
+  fi
+  if [ -n "${SERVICE_READY:-}" ]; then
+    rm -f "$SERVICE_READY"
+    SERVICE_READY=
+  fi
+}
+
 fail_efi() {
   ui_print "! $1"
   if [ "$TRANSACTION" = yes ]; then
@@ -16,6 +28,7 @@ fail_efi() {
       ui_print "! 自动恢复未完成，不要重启。保留日志与备份：$STATE"
     fi
   fi
+  stop_efi_service
   abort "$1"
 }
 
@@ -57,6 +70,7 @@ DRIVER_NODE=$(readlink -f "$DRIVER")
 [ "$(hash_efi "/dev/block/by-name/uefi$SLOT")" = 261f9bb02d1dcac0341c28dfc890519222aa5c2406b461d86526efcfb59c1d43 ] || abort "UEFI differs from .155"
 [ "$(hash_efi "/dev/block/by-name/android_esp$SLOT")" = e94ca7ce00dc5c9a9d0dcd4a8dfa240546777b6929bac5f6882965cb02edf103 ] || abort "android_esp differs from .155"
 [ "$(hash_efi "/dev/block/by-name/uefisecapp$SLOT")" = 2b4549470adc52806fbb3fcf2958ba9e908833c63181a47ce7455bc9bd6260bd ] || abort "uefisecapp differs from .155"
+[ "$(hash_efi /vendor/lib64/libQSEEComAPI_compat.so)" = 8ce967a17d11d19684e0f743d779ffb81d871b7b321f47b6d8040afdd023abed ] || abort "Variable client differs from .155"
 if [ -d "$STATE" ]; then
   ARCHIVE="$STATE.previous-$(date +%Y%m%d-%H%M%S)-$$"
   [ ! -e "$ARCHIVE" ] && [ ! -L "$ARCHIVE" ] || abort "Backup archive already exists"
@@ -71,7 +85,17 @@ chmod 0700 "$STATE/canoe_bootctl" "$STATE/efi_test.sh"
 echo "$SLOT" >"$STATE/slot"
 blockdev --getro "$DRIVER" >"$STATE/driver.ro" || fail_efi "Cannot read DRIVER flags"
 ui_print "- 检查安装条件"
-"$STATE/canoe_bootctl" preflight >"$STATE/variables.log" 2>&1 || fail_efi "变量服务不可用，请查看 $STATE/variables.log"
+SERVICE_READY="$STATE/service-$$.ready"
+: >"$STATE/variables.log" || fail_efi "Cannot create variable log"
+"$STATE/canoe_bootctl" hold "$SERVICE_READY" >>"$STATE/variables.log" 2>&1 &
+SERVICE_PID=$!
+SERVICE_WAIT=0
+while [ ! -f "$SERVICE_READY" ]; do
+  kill -0 "$SERVICE_PID" 2>/dev/null && [ "$SERVICE_WAIT" -lt 20 ] || fail_efi "变量服务不可用，请正常重启后重试。日志：$STATE/variables.log"
+  sleep 1
+  SERVICE_WAIT=$((SERVICE_WAIT + 1))
+done
+"$STATE/canoe_bootctl" preflight >>"$STATE/variables.log" 2>&1 || fail_efi "变量检查失败，请查看 $STATE/variables.log"
 mkdir "$STATE/variables" || fail_efi "Cannot create variable backup"
 "$STATE/canoe_bootctl" snapshot "$STATE/variables" >>"$STATE/variables.log" 2>&1 || fail_efi "Cannot back up boot variables"
 "$STATE/canoe_bootctl" option /dev/block/sdf "$STATE/option.bin" >>"$STATE/variables.log" 2>&1 || fail_efi "GPT identity check failed"
@@ -116,4 +140,5 @@ touch "$STATE/ready" || fail_efi "Cannot save installation state"
 touch "$MODPATH/skip_mount" || fail_efi "Cannot save module state"
 sed -i 's/^description=.*/description=启动菜单与假回锁/' "$MODPATH/module.prop" || fail_efi "Cannot update module information"
 TRANSACTION=no
+stop_efi_service
 ui_print "- 安装完成"
