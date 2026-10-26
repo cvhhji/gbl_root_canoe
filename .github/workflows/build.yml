@@ -8,27 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  pyb110_probe:
-    if: github.ref == 'refs/heads/test/android-esp-20261012'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and check the PYB110 service test
-        run: python3 tools/pyb110_probe/build.py --ndk "$ANDROID_NDK_LATEST_HOME" --output build/pyb110-p1
-      - name: Upload PYB110 phone test
-        uses: actions/upload-artifact@v4
-        with:
-          name: PYB110-155-EFI-P1
-          path: build/pyb110-p1/packet/test.sh
-          if-no-files-found: error
-      - name: Upload build checks
-        uses: actions/upload-artifact@v4
-        with:
-          name: PYB110-P1-build-checks
-          path: build/pyb110-p1/verification.json
-          if-no-files-found: error
-
   efisp_restore:
     runs-on: ubuntu-latest
     steps:
