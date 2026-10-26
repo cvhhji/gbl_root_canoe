@@ -17,6 +17,7 @@ extern void *memcpy(void *, const void *, size_t);
 extern void *memset(void *, int, size_t);
 extern void *dlopen(const char *, int);
 extern void *dlsym(void *, const char *);
+extern const char *dlerror(void);
 extern void *malloc(size_t);
 extern void free(void *);
 extern int memcmp(const void *, const void *, size_t);
@@ -168,13 +169,65 @@ static int open_object(Object parent, uint32_t uid, Object *out) {
     return r;
 }
 
+typedef struct {
+    uint64_t flags;
+    void *address;
+    size_t size;
+    int relro_fd, library_fd;
+    int64_t offset;
+    void *namespace;
+} LibraryExtInfo;
+
+_Static_assert(sizeof(LibraryExtInfo) == 48, "Android linker ABI mismatch");
+
+static const char *linker_error(void) {
+    const char *error = dlerror();
+    return error ? error : "Linker did not return an error";
+}
+
+static void *load_vendor_client(void) {
+    void *support = dlopen("/system/lib64/libvndksupport.so", 2);
+    if (!support) {
+        printf("vendor_loader_error=%s\n", linker_error());
+        return NULL;
+    }
+    void *(*get_namespace)(const char *) = (void *(*)(const char *))dlsym(support, "android_get_exported_namespace");
+    void *(*load_ext)(const char *, int, const LibraryExtInfo *) = (void *(*)(const char *, int, const LibraryExtInfo *))dlsym(support, "android_dlopen_ext");
+    if (!get_namespace || !load_ext) {
+        printf("vendor_loader_symbol_error=%s\n", linker_error());
+        return NULL;
+    }
+    LibraryExtInfo info = {0};
+    info.flags = 0x200;
+    info.namespace = get_namespace("sphal");
+    if (!info.namespace) {
+        printf("vendor_namespace_missing=sphal\n");
+        return NULL;
+    }
+    void *library = load_ext("/vendor/lib64/libminkdescriptor.so", 2, &info);
+    printf("vendor_library_loaded=%d\n", library != NULL);
+    if (!library) {
+        printf("vendor_library_error=%s\n", linker_error());
+    }
+    fflush(NULL);
+    return library;
+}
+
 static int connect_service(int load) {
-    void *library = dlopen("/vendor/lib64/libminkdescriptor.so", 2);
+    void *library = load_vendor_client();
     if (!library) return 1;
     int32_t (*get_env)(Object *) = (int32_t (*)(Object *))dlsym(library, "TZCom_getClientEnvObject");
-    if (!get_env || get_env(&environment) || !environment.invoke) return 1;
-    int r = open_object(environment, 0x97, &manager);
+    if (!get_env) {
+        printf("vendor_client_symbol_error=%s\n", linker_error());
+        return 1;
+    }
+    int r = get_env(&environment);
+    printf("client_environment=%d\n", r);
+    fflush(NULL);
+    if (r || !environment.invoke) return 1;
+    r = open_object(environment, 0x97, &manager);
     printf("client_open=%d\n", r);
+    fflush(NULL);
     Arg a[3] = {0};
     const char *name = "qcom.tz.uefisecapp";
     a[0].buffer.data = (void *)name;
@@ -183,11 +236,13 @@ static int connect_service(int load) {
         r = manager.invoke(manager.context, 0, a, 0x1001);
         if (!r) application = a[1].object;
         printf("client_application=%d\n", r);
+        fflush(NULL);
     }
     if (!application.invoke) {
         release(&manager);
         r = open_object(environment, 0x7a, &manager);
         printf("manager_open=%d\n", r);
+        fflush(NULL);
         if (r || !manager.invoke) return 1;
         uint32_t kind = 0xffffffff;
         memset(a, 0, sizeof(a));
@@ -198,11 +253,13 @@ static int connect_service(int load) {
         r = manager.invoke(manager.context, 2, a, 0x1011);
         if (!r) application = a[2].object;
         printf("manager_application=%d kind=%u\n", r, kind);
+        fflush(NULL);
     }
     if (!application.invoke && load) {
         release(&manager);
         r = open_object(environment, 3, &manager);
         printf("signed_loader_open=%d\n", r);
+        fflush(NULL);
         if (!r && manager.invoke) {
             char slot[128] = {0};
             __system_property_get("ro.boot.slot_suffix", slot);
@@ -216,6 +273,7 @@ static int connect_service(int load) {
             r = manager.invoke(manager.context, 0, a, 0x1001);
             Object controller = {0}; if (!r) controller = a[1].object;
             free(elf); printf("signed_application_load=%d\n", r);
+            fflush(NULL);
             if (!r && controller.invoke) {
                 memset(a, 0, sizeof(a));
                 r = controller.invoke(controller.context, 2, a, 0x1000);
@@ -233,6 +291,7 @@ static int connect_service(int load) {
     r = application.invoke(application.context, 0, a, 0x1101);
     if (!r) service = a[2].object;
     printf("uefi_service_open=%d\n", r);
+    fflush(NULL);
     return r || !service.invoke;
 }
 
@@ -254,6 +313,7 @@ static int get_variable(const char *name, uint8_t *data, uint32_t *size, uint32_
     a[4].buffer.data = data; a[4].buffer.size = *size;
     int r = service.invoke(service.context, 0, a, 0x23);
     printf("get %s: transport=%d status=%u size=%u attributes=%u\n", name, r, output.status, output.size, output.attributes);
+    fflush(NULL);
     if (r || a[3].buffer.size != sizeof(output) || output.size > *size || a[4].buffer.size < output.size) return -1;
     *size = output.size;
     *attributes = output.attributes;
@@ -274,6 +334,7 @@ static int set_variable(const char *name, const uint8_t *data, uint32_t size, ui
     a[3].buffer.data = &status; a[3].buffer.size = 4;
     int r = service.invoke(service.context, 1, a, 0x13);
     printf("set %s: transport=%d status=%u\n", name, r, status);
+    fflush(NULL);
     return r || a[3].buffer.size != 4 ? -1 : (int)status;
 }
 
@@ -382,6 +443,8 @@ int main(int argc, char **argv) {
     int snapshot = !strcmp(argv[1], "snapshot") && argc == 3;
     if (!info && !preflight && !reserve && !arm && !remove && !snapshot) return 2;
     alarm(20);
+    printf("command=%s\n", argv[1]);
+    fflush(NULL);
     int result = 1;
     if (connect_service(!info)) goto done;
     if (snapshot) {
