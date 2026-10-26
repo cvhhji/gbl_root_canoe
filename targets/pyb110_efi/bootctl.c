@@ -292,7 +292,7 @@ static int one_shot_only(void) {
     int r = get_variable("BootOrder", order, &size, &attributes);
     if (r == 18) return 1;
     if (r || size % 2) return 0;
-    for (uint32_t i = 0; i < size; i += 2) if (le16(order + i) == 0xca06) return 0;
+    for (uint32_t i = 0; i < size; i += 2) if (le16(order + i) == 0x6006) return 0;
     return 1;
 }
 
@@ -310,7 +310,7 @@ static int save_variable(const char *name, const char *directory_path) {
 }
 
 static int disarm(const uint8_t *option, size_t length) {
-    const uint8_t next[] = {6, 0xca};
+    const uint8_t next[] = {6, 0x60};
     if (equals("BootNext", next, 2)) {
         if (set_variable("BootNext", NULL, 0, 0) || !absent("BootNext")) return 1;
     } else if (!absent("BootNext")) {
@@ -318,9 +318,9 @@ static int disarm(const uint8_t *option, size_t length) {
         if (get_variable("BootNext", data, &size, &attr) || size != 2) return 1;
         printf("Leaving another BootNext unchanged.\n");
     }
-    if (absent("BootCA06")) return 0;
-    if (!equals("BootCA06", option, length)) return 1;
-    return set_variable("BootCA06", NULL, 0, 0) || !absent("BootCA06");
+    if (absent("Boot6006")) return 0;
+    if (!equals("Boot6006", option, length)) return 1;
+    return set_variable("Boot6006", NULL, 0, 0) || !absent("Boot6006");
 }
 
 static int load_option(const char *disk, uint8_t *option, size_t *bytes) {
@@ -385,17 +385,17 @@ int main(int argc, char **argv) {
     int result = 1;
     if (connect_service(!info)) goto done;
     if (snapshot) {
-        if (save_variable("BootOrder", argv[2]) || save_variable("BootNext", argv[2]) || save_variable("BootCA06", argv[2]) || save_variable("SecureBoot", argv[2]) || save_variable("SetupMode", argv[2])) goto done;
+        if (save_variable("BootOrder", argv[2]) || save_variable("BootNext", argv[2]) || save_variable("Boot6006", argv[2]) || save_variable("SecureBoot", argv[2]) || save_variable("SetupMode", argv[2])) goto done;
         result = 0; goto done;
     }
     if (reserve || arm || remove) {
         size_t length = 0; uint8_t *option = read_file(argv[2], &length, 512);
         if (!option || validate_option(option, length)) { free(option); goto done; }
-        const uint8_t next[] = {6, 0xca};
+        const uint8_t next[] = {6, 0x60};
         if (reserve) {
-            if (one_shot_only() && absent("BootNext") && absent("BootCA06") && !set_variable("BootCA06", option, length, 7) && equals("BootCA06", option, length)) result = 0;
+            if (one_shot_only() && absent("BootNext") && absent("Boot6006") && !set_variable("Boot6006", option, length, 7) && equals("Boot6006", option, length)) result = 0;
         } else if (arm) {
-            if (one_shot_only() && equals("BootCA06", option, length) && absent("BootNext") && !set_variable("BootNext", next, 2, 7) && equals("BootNext", next, 2)) result = 0;
+            if (one_shot_only() && equals("Boot6006", option, length) && absent("BootNext") && !set_variable("BootNext", next, 2, 7) && equals("BootNext", next, 2)) result = 0;
         } else result = disarm(option, length);
         free(option); goto done;
     }
@@ -409,7 +409,7 @@ int main(int argc, char **argv) {
             printf("\n");
         }
     }
-    result = info ? 0 : !(one_shot_only() && absent("BootNext") && absent("BootCA06"));
+    result = info ? 0 : !(one_shot_only() && absent("BootNext") && absent("Boot6006"));
 done:
     release(&service); release(&application); release(&manager); release(&environment);
     alarm(0);
