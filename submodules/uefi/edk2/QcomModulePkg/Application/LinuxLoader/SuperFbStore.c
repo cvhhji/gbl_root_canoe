@@ -52,7 +52,7 @@ SfbFileStore (IN UINTN Slot, IN OUT CHAR8 *Record, IN BOOLEAN Write)
   }
   Status = Fs->OpenVolume (Fs, &Root);
   if (EFI_ERROR (Status)) {
-    return Status;
+    return Status == EFI_UNSUPPORTED ? EFI_DEVICE_ERROR : Status;
   }
   Status = Root->Open (Root, &File, L"\\CANOETST", EFI_FILE_MODE_READ, 0);
   if (Status == EFI_NOT_FOUND) {
@@ -61,7 +61,7 @@ SfbFileStore (IN UINTN Slot, IN OUT CHAR8 *Record, IN BOOLEAN Write)
   }
   if (EFI_ERROR (Status)) {
     Root->Close (Root);
-    return Status;
+    return Status == EFI_UNSUPPORTED ? EFI_DEVICE_ERROR : Status;
   }
   Status = File->Read (File, &Bytes, Marker);
   File->Close (File);
@@ -75,7 +75,7 @@ SfbFileStore (IN UINTN Slot, IN OUT CHAR8 *Record, IN BOOLEAN Write)
                        EFI_FILE_MODE_READ | (Write ? EFI_FILE_MODE_WRITE : 0), 0);
   Root->Close (Root);
   if (EFI_ERROR (Status)) {
-    return Status;
+    return Status == EFI_UNSUPPORTED ? EFI_DEVICE_ERROR : Status;
   }
   Status = File->GetInfo (File, &gEfiFileInfoGuid, &InfoBytes, InfoBuffer);
   if (!EFI_ERROR (Status) &&
@@ -96,7 +96,7 @@ SfbFileStore (IN UINTN Slot, IN OUT CHAR8 *Record, IN BOOLEAN Write)
     Status = File->Flush (File);
   }
   File->Close (File);
-  return Status;
+  return Status == EFI_UNSUPPORTED ? EFI_DEVICE_ERROR : Status;
 }
 
 CONST CHAR8 *gSfbStoreModuleTag = "SuperFbStore";

@@ -26,6 +26,7 @@ hash_efi() {
 [ "$(id -u)" = 0 ] || abort "root required"
 [ "${BOOTMODE:-false}" = true ] || abort "Install from the root manager in Android"
 [ "$(getprop ro.build.display.id)" = 'PYB110_17.0.0.155(CN01)' ] || abort "This EFI test supports PYB110 .155 only"
+[ "$(getprop ro.boot.vbmeta.digest)" = 0d2126af42f975eb68a41fe3b349c9c7f71269d18a5c5e038b6a07da0a5af78c ] || abort "AVB chain differs from the checked .155 firmware"
 case "$(getprop ro.boot.slot_suffix)" in _a | _b) SLOT=$(getprop ro.boot.slot_suffix) ;; *) abort "Unknown active slot" ;; esac
 grep -q " $PERSIST ext4 .*rw" /proc/mounts || abort "persist must be mounted as writable ext4"
 for tool in dd sha256sum blockdev readlink cp cmp sync; do
@@ -76,7 +77,7 @@ grep -q 'Android ESP layout:' "$STATE/patch.log" || fail_efi "Unexpected loader 
 "$STATE/canoe_bootctl" image "$STATE/DRIVER.original.img" "$MODPATH/BDS.efi" "$STATE/DRIVER.test.img" >"$STATE/layout.log" 2>&1 || fail_efi "DRIVER layout failed"
 hash_efi "$STATE/DRIVER.test.img" >"$STATE/driver.test.sha256"
 TRANSACTION=yes
-"$STATE/canoe_bootctl" reserve "$STATE/option.bin" >>"$STATE/variables.log" 2>&1 || fail_efi "Cannot create BootCA06"
+"$STATE/canoe_bootctl" reserve "$STATE/option.bin" >>"$STATE/variables.log" 2>&1 || fail_efi "Cannot create Boot6006"
 touch "$STATE/persist-changing"
 if [ -f "$STATE/had-efisp" ]; then
   mv "$DEST" "$PERSIST/.canoe-efi-original" || fail_efi "Cannot preserve original persist/efisp"
