@@ -225,6 +225,10 @@ static int connect_service(int load) {
     printf("client_environment=%d\n", r);
     fflush(NULL);
     if (r || !environment.invoke) return 1;
+    r = open_object(environment, 0x19d, &service);
+    printf("uefi_service_direct=%d\n", r);
+    fflush(NULL);
+    if (!r && service.invoke) return 0;
     r = open_object(environment, 0x97, &manager);
     printf("client_open=%d\n", r);
     fflush(NULL);
