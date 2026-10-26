@@ -93,7 +93,7 @@ identity() {
 
 query() {
     result=0
-    LD_LIBRARY_PATH=/vendor/lib64 "$work/probe" || result=$?
+    LD_LIBRARY_PATH=/vendor/lib64 "$work/probe" 2>&1 || result=$?
     printf '\nprobe_exit_status=%s\n' "$result"
 }
 
