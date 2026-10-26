@@ -1,7 +1,7 @@
 #!/system/bin/sh
 
 if [ "$(getprop ro.product.model)" = PYB110 ]; then
-  echo "PYB110 uses the EFI boot test. Use the module action button to set BootNext."
+  echo "请使用模块操作按钮。"
   exit 1
 fi
 if [ -z "$MODDIR" ]; then

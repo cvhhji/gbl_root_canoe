@@ -14,16 +14,17 @@ hash_efi() { sha256sum "$1" | cut -d' ' -f1; }
 [ -d "$STATE" ] && [ ! -L "$STATE" ] || die_efi "Backup directory missing"
 [ -x "$STATE/canoe_bootctl" ] || die_efi "Recovery helper missing"
 if [ -f "$STATE/option.bin" ]; then
-  "$STATE/canoe_bootctl" verify-option "$STATE/option.bin" || die_efi "Device GPT no longer matches this backup"
+  "$STATE/canoe_bootctl" verify-option "$STATE/option.bin" >>"$STATE/variables.log" 2>&1 || die_efi "Device GPT no longer matches this backup"
 fi
 case "${1:-}" in
 arm)
   [ -f "$STATE/ready" ] || die_efi "Installation incomplete"
+  [ ! -f "$STATE/restored" ] || die_efi "Installation has been restored"
   [ "$(getprop ro.boot.slot_suffix)" = "$(cat "$STATE/slot")" ] || die_efi "Slot changed; restore and reinstall"
   [ "$(hash_efi "$DRIVER")" = "$(cat "$STATE/driver.test.sha256")" ] || die_efi "DRIVER changed"
   cmp -s "$DEST/boot.efi" "$STATE/boot.efi" || die_efi "Android EFI changed"
-  "$STATE/canoe_bootctl" arm "$STATE/option.bin" || die_efi "Cannot set BootNext"
-  echo "BootNext set for one boot. Reboot manually."
+  "$STATE/canoe_bootctl" arm "$STATE/option.bin" >>"$STATE/variables.log" 2>&1 || die_efi "无法设置启动项，请查看 $STATE/variables.log"
+  echo "设置完成，请手动重启。"
   ;;
 rollback | restore)
   [ ! -f "$STATE/restored" ] || {
@@ -31,7 +32,7 @@ rollback | restore)
     exit 0
   }
   if [ -f "$STATE/option.bin" ]; then
-    "$STATE/canoe_bootctl" disarm "$STATE/option.bin" || die_efi "Cannot remove test boot variables; do not reboot"
+    "$STATE/canoe_bootctl" disarm "$STATE/option.bin" >>"$STATE/variables.log" 2>&1 || die_efi "Cannot remove boot variables; do not reboot"
   fi
   if [ -f "$STATE/driver-changing" ]; then
     [ "$(hash_efi "$STATE/DRIVER.original.img")" = "$(cat "$STATE/driver.original.sha256")" ] || die_efi "Backup hash mismatch"
@@ -58,7 +59,7 @@ rollback | restore)
   fi
   sync
   touch "$STATE/restored"
-  echo "Restored. Backups and logs remain in $STATE. No reboot was requested."
+  echo "已恢复，备份和日志保留在 $STATE。"
   ;;
 *)
   echo "Usage: sh $STATE/efi_test.sh arm|restore"
