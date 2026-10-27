@@ -228,6 +228,41 @@ static int exchange(uint32_t *request, uint32_t capacity, uint32_t **reply) {
     return qsee_send(service, request, input_size, *reply, capacity);
 }
 
+static int persistent_store_available(void) {
+    static const char prefix[] = "TzVariableInitialize:", fallback[] = ": RT_NV_NS Vol";
+    static const char opening[] = ": Process RT_NV_NS", closing[] = ": Process RT_NV_S";
+    memset(service->buffer, 0, SHARED_SIZE);
+    uint32_t *request = (uint32_t *)service->buffer, *response = NULL;
+    request[0] = 0x800c; request[1] = 12; request[2] = 4096;
+    int r = exchange(request, 4160, &response);
+    printf("storage_log transport=%d status=%08x\n", r, response ? response[2] : 0xffffffffu);
+    if (r || !response || response[0] != 0x800c || response[1] < 20 || response[1] > 4160 || response[2] || response[3] < 20 || response[3] > response[1] || response[4] != 4096 || response[4] > response[1] - response[3]) return 0;
+    const uint8_t *data = (const uint8_t *)response + response[3];
+    int opened = 0, closed = 0;
+    for (size_t i = 0; i + sizeof(prefix) - 1 < 4096; i++) {
+        if (memcmp(data + i, prefix, sizeof(prefix) - 1)) continue;
+        size_t start = i + sizeof(prefix) - 1, end = start;
+        while (end < 4096 && data[end] >= '0' && data[end] <= '9') end++;
+        if (end == start) continue;
+        if (end + sizeof(opening) - 1 < 4096 && !memcmp(data + end, opening, sizeof(opening) - 1)) {
+            uint8_t next = data[end + sizeof(opening) - 1];
+            if (!next || next == '\r' || next == '\n') opened = 1;
+        }
+        if (opened && end + sizeof(closing) - 1 < 4096 && !memcmp(data + end, closing, sizeof(closing) - 1)) {
+            uint8_t next = data[end + sizeof(closing) - 1];
+            if (!next || next == '\r' || next == '\n') closed = 1;
+        }
+        if (end + sizeof(fallback) - 1 >= 4096 || memcmp(data + end, fallback, sizeof(fallback) - 1)) continue;
+        uint8_t next = data[end + sizeof(fallback) - 1];
+        if (next && next != '\r' && next != '\n') continue;
+        printf("storage_volatile=1; boot variables will be lost on reboot\n");
+        fflush(NULL);
+        return 0;
+    }
+    if (!opened || !closed) printf("storage_log_incomplete=1; cannot check nonvolatile initialization\n");
+    return opened && closed;
+}
+
 static int get_variable(const char *name, uint8_t *data, uint32_t *size, uint32_t *attributes) {
     if (*size > MAX_VARIABLE_SIZE || (*size && !data)) return -1;
     uint32_t *request = request_variable(name, 0x8000, 28), *response = NULL;
@@ -399,6 +434,7 @@ int main(int argc, char **argv) {
         if (save_variable("BootOrder", argv[2]) || save_variable("BootNext", argv[2]) || save_variable("Boot6006", argv[2]) || save_variable("SecureBoot", argv[2]) || save_variable("SetupMode", argv[2])) goto done;
         result = 0; goto done;
     }
+    if ((preflight || reserve || arm) && !persistent_store_available()) goto done;
     if (reserve || arm || remove) {
         size_t length = 0; uint8_t *option = read_file(argv[2], &length, 512);
         if (!option || validate_option(option, length)) { free(option); goto done; }
