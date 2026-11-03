@@ -74,6 +74,10 @@ if [ "$LANG" = "zh" ]; then
   T_OPT_SUPER_NOTE="【重要提示】移除super验证已内置vendor_boot修补；操作后请勿修改 system、system_dlkm、vendor 分区！"
   T_OPT_SKIP="已跳过额外修补步骤"
   T_BIN_FAIL="执行失败！"
+  T_STOCK_ABL_ASK="请确认当前槽位的 ABL 是否为官方原厂 ABL"
+  T_STOCK_ABL_YES="音量上 = 是，继续安装"
+  T_STOCK_ABL_NO="音量下 = 否，终止安装"
+  T_STOCK_ABL_ABORT="已终止安装，请先刷回当前槽位的官方原厂 ABL，再刷此模块"
 
   T_VERIFY="- 正在验证设备型号"
   T_DEVICE_OK="- 设备验证完成："
@@ -128,6 +132,10 @@ else
   T_OPT_SUPER_NOTE="【WARNING】Super patch includes vendor_boot patch. DO NOT modify system,system_dlkm,vendor partitions afterward!"
   T_OPT_SKIP="Extra patch skipped"
   T_BIN_FAIL="Binary execution failed!"
+  T_STOCK_ABL_ASK="Is the ABL in the current slot an official stock image?"
+  T_STOCK_ABL_YES="Vol+ = Yes, continue"
+  T_STOCK_ABL_NO="Vol- = No, abort"
+  T_STOCK_ABL_ABORT="Installation aborted. Restore the official stock ABL to the current slot, then install this module again"
 
   T_VERIFY="- Verifying device model"
   T_DEVICE_OK="- Device verified:"
@@ -257,6 +265,20 @@ elif [ "$EXTRA_PATCH_MODE" = "super" ]; then
   ui_print "$T_OPT_FINISH_SUPER"
   ui_print "$T_OPT_SUPER_NOTE"
 fi
+
+ui_print ""
+ui_print "$T_OPT_MENU"
+ui_print "$T_STOCK_ABL_ASK (abl$current_slot_suffix)"
+ui_print "$T_STOCK_ABL_YES"
+ui_print "$T_STOCK_ABL_NO"
+while true; do
+  keyevent=$(read_volume_key)
+  if [ "$keyevent" = "up" ]; then
+    break
+  elif [ "$keyevent" = "down" ]; then
+    abort "$T_STOCK_ABL_ABORT"
+  fi
+done
 
 BY_NAME_DIR=/dev/block/by-name
 RUNTIME_DIR=$MODPATH/tmp
